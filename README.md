@@ -174,14 +174,15 @@ Step 1: IAM Setup    →    Step 2: Model Access    →    Step 3: Verification
 
 ### 🎯 **Option A: Quick Setup (Recommended)**
 
-1. **Deploy IAM Template** *(Automated)*
+1. **Deploy Complete Infrastructure** *(Automated)*
    ```bash
-   # Creates user, policies, and permissions automatically
+   # Creates VPC, database, IAM permissions - everything needed
    aws cloudformation create-stack \
-     --stack-name financial-forecast-iam \
-     --template-body file://infra/iam-permissions.yaml \
+     --stack-name financial-forecast-complete \
+     --template-body file://infra/cloudformation.yaml \
      --capabilities CAPABILITY_IAM \
-     --parameters ParameterKey=UserName,ParameterValue=Antonio
+     --parameters ParameterKey=Environment,ParameterValue=dev \
+                  ParameterKey=UserName,ParameterValue=Antonio
    ```
 
 2. **Request Model Access** *(Manual)*
@@ -272,7 +273,7 @@ aws iam create-access-key --user-name FinancialForecastUser
 └─────────────────────────┘      └─────────────────────────┘
 ```
 
-### 🚀 **Option 1: Complete Infrastructure** *(Future Production)*
+### 🚀 **Complete Infrastructure Deployment** *(Production)*
 
 ```bash
 # 1️⃣ Deploy unified infrastructure (VPC + Database + IAM)
@@ -293,7 +294,7 @@ aws cloudformation describe-stacks \
   --query "Stacks[0].Outputs"
 ```
 
-### 🏠 **Option 2: Local Development** *(Current & Recommended)*
+### 🏠 **Local Development Mode** *(Current & Recommended)*
 
 ```bash
 # ✅ Current setup - just run the app locally!
@@ -304,8 +305,8 @@ streamlit run src/ui/app.py --server.port 8516
 
 <div align="center">
 
-**📝 Note**: The application currently runs in **local development mode** with file-based storage.  
-For production deployment with containers and databases, use the CloudFormation templates.
+**📝 Infrastructure**: The application uses a **single consolidated CloudFormation template** for all AWS resources.  
+**🚀 Development**: Run locally with file-based storage, deploy to AWS for production.
 
 </div>
 
@@ -346,10 +347,8 @@ financial-forecast-ai/
 │   └── 🎨 ui/                      # Modern Streamlit interface
 │       └── app.py                  # Enhanced chat UI
 ├── 🏗️ infra/                       # AWS Infrastructure
-│   ├── cloudformation.yaml        # Complete deployment
-│   ├── vpc-database.yaml          # Network & database
-│   ├── iam-permissions.yaml       # Security policies
-│   └── README.md                   # Deployment guide
+│   ├── cloudformation.yaml        # Complete deployment template
+│   └── README.md                  # Infrastructure guide
 ├── 📋 requirements.txt             # Python dependencies
 ├── 🔧 .env                        # Environment config
 ├── 🐳 Dockerfile                  # Container setup

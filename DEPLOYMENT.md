@@ -57,38 +57,33 @@ Deploy Bedrock permissions for local development access:
 # Navigate to project directory
 cd c:\Users\anton\OneDrive\Desktop\AI\finalcial_forecast_ia_app
 
-# Deploy IAM permissions
+# Deploy complete infrastructure (VPC + Database + IAM)
 aws cloudformation create-stack \
-  --stack-name antonio-bedrock-permissions \
-  --template-body file://infra/iam-permissions.yaml \
+  --stack-name financial-forecast-complete \
+  --template-body file://infra/cloudformation.yaml \
   --capabilities CAPABILITY_IAM \
-  --parameters ParameterKey=UserName,ParameterValue=Antonio
+  --parameters ParameterKey=Environment,ParameterValue=dev \
+               ParameterKey=UserName,ParameterValue=Antonio
 
 # Check deployment status
 aws cloudformation describe-stacks \
-  --stack-name antonio-bedrock-permissions \
+  --stack-name financial-forecast-complete \
   --query "Stacks[0].StackStatus"
 ```
 
-### Step 4: Deploy VPC and Database Infrastructure
+### Step 4: Monitor Infrastructure Deployment
 
-Deploy the foundational networking and database components:
+Wait for the complete infrastructure to deploy:
 
 ```bash
-# Deploy VPC and Database stack
-aws cloudformation create-stack \
-  --stack-name financial-forecast-vpc \
-  --template-body file://infra/vpc-db.yaml \
-  --parameters ParameterKey=Environment,ParameterValue=dev
-
 # Monitor deployment progress (takes 10-15 minutes)
 aws cloudformation wait stack-create-complete \
-  --stack-name financial-forecast-vpc
+  --stack-name financial-forecast-complete
 
-# Verify stack creation
+# Verify stack creation and get outputs
 aws cloudformation describe-stacks \
-  --stack-name financial-forecast-vpc \
-  --query "Stacks[0].StackStatus"
+  --stack-name financial-forecast-complete \
+  --query "Stacks[0].Outputs"
 ```
 
 ### Step 5: Create ECR Repository and Build Container
