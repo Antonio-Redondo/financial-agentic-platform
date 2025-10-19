@@ -1,0 +1,59 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Financial Forecast AI Application - Bedrock Permissions for Antonio'
+
+Parameters:
+  UserName:
+    Type: String
+    Default: Antonio
+    Description: IAM user name to add Bedrock permissions to
+
+Resources:
+  # Bedrock policy for Antonio
+  AntonioBedrockPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: FinancialForecast-BedrockFullAccess-Antonio
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - bedrock:*
+            Resource: '*'
+          - Effect: Allow
+            Action:
+              - bedrock:InvokeModel
+              - bedrock:InvokeModelWithResponseStream
+              - bedrock:ListFoundationModels
+              - bedrock:GetFoundationModel
+              - bedrock:GetModelInvocationLoggingConfiguration
+              - bedrock:PutModelInvocationLoggingConfiguration
+            Resource: '*'
+          - Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+              - logs:DescribeLogGroups
+              - logs:DescribeLogStreams
+            Resource: '*'
+      Users:
+        - !Ref UserName
+
+Outputs:
+  AntonioBedrockPolicyName:
+    Description: Bedrock policy attached to Antonio user
+    Value: !Ref AntonioBedrockPolicy
+    
+  AttachedToUser:
+    Description: User that received Bedrock permissions
+    Value: !Ref UserName
+    
+  NextSteps:
+    Description: What to do after deploying this template
+    Value: !Sub |
+      1. Policy '${AntonioBedrockPolicy}' has been attached to user '${UserName}'
+      2. Go to AWS Bedrock Console
+      3. Request access to 'Anthropic Claude 3 Sonnet'
+      4. Fill out the use case form for financial analysis
+      5. Wait for approval and restart your application
