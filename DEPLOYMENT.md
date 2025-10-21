@@ -1,327 +1,734 @@
-# Financial Forecast AI - Deployment Guide
-
-This guide provides step-by-step instructions for deploying the Financial Forecast AI application to AWS using CloudFormation.
-
-## 📋 Prerequisites
-
-### AWS Account Setup
-- ✅ AWS Account with appropriate permissions
-- ✅ AWS CLI installed and configured
-- ✅ Docker installed (for containerization)
-- ✅ Python 3.11+ installed locally
-
-### Required AWS Services Access
-- ✅ AWS Bedrock (with Amazon Titan Text model access)
-- ✅ Amazon ECS (Fargate)
-- ✅ Amazon RDS (PostgreSQL)
-- ✅ Amazon VPC
-- ✅ AWS Secrets Manager
-- ✅ Elastic Load Balancing
-- ✅ Amazon ECR (Elastic Container Registry)
-
-## 🚀 Deployment Steps
-
-### Step 1: Configure AWS CLI
-
-```bash
-# Configure AWS CLI with your credentials
-aws configure
-
-# Verify configuration
-aws sts get-caller-identity
-```
-
-### Step 2: Request Bedrock Model Access
-
-1. **Navigate to AWS Bedrock Console**
-   ```
-   https://console.aws.amazon.com/bedrock/
-   ```
-
-2. **Request Model Access**
-   - Go to "Model access" in left sidebar
-   - Click "Request model access"
-   - Find "Amazon Titan Text Large" and request access
-   - Fill out use case form:
-     - **Use Case**: Financial analysis application for mortgage prepayment forecasting
-     - **Industry**: Financial Services
-     - **Application**: Commercial analytical platform
-
-3. **Wait for Approval** (usually 15 minutes to 2 hours)
-
-### Step 3: Deploy IAM Permissions (For Development)
-
-Deploy Bedrock permissions for local development access:
-
-```bash
-# Navigate to project directory
-cd c:\Users\anton\OneDrive\Desktop\AI\finalcial_forecast_ia_app
-
-# Deploy complete infrastructure (VPC + Database + IAM)
-aws cloudformation create-stack \
-  --stack-name financial-forecast-complete \
-  --template-body file://infra/cloudformation.yaml \
-  --capabilities CAPABILITY_IAM \
-  --parameters ParameterKey=Environment,ParameterValue=dev \
-               ParameterKey=UserName,ParameterValue=Antonio
-
-# Check deployment status
-aws cloudformation describe-stacks \
-  --stack-name financial-forecast-complete \
-  --query "Stacks[0].StackStatus"
-```
-
-### Step 4: Monitor Infrastructure Deployment
-
-Wait for the complete infrastructure to deploy:
-
-```bash
-# Monitor deployment progress (takes 10-15 minutes)
-aws cloudformation wait stack-create-complete \
-  --stack-name financial-forecast-complete
-
-# Verify stack creation and get outputs
-aws cloudformation describe-stacks \
-  --stack-name financial-forecast-complete \
-  --query "Stacks[0].Outputs"
-```
-
-### Step 5: Create ECR Repository and Build Container
-
-Create container repository and build the application image:
-
-```bash
-# Create ECR repository
-aws ecr create-repository \
-  --repository-name financial-forecast-ai \
-  --region us-east-1
-
-# Get ECR login token
-aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin <AWS_ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com
-
-# Build Docker image
-docker build -t financial-forecast-ai .
-
-# Tag image for ECR
-docker tag financial-forecast-ai:latest <AWS_ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/financial-forecast-ai:latest
-
-# Push image to ECR
-docker push <AWS_ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/financial-forecast-ai:latest
-```
-
-> **Note**: Replace `<AWS_ACCOUNT_ID>` with your actual AWS Account ID
-
-### Step 6: Deploy Application Infrastructure
-
-Deploy the ECS application after VPC stack completes:
-
-```bash
-# Deploy Application stack
-aws cloudformation create-stack \
-  --stack-name financial-forecast-app \
-  --template-body file://infra/app.yaml \
-  --capabilities CAPABILITY_IAM \
-  --parameters ParameterKey=Environment,ParameterValue=dev \
-              ParameterKey=VPCStackName,ParameterValue=financial-forecast-vpc
-
-# Monitor deployment progress (takes 5-10 minutes)
-aws cloudformation wait stack-create-complete \
-  --stack-name financial-forecast-app
-
-# Get application URL
-aws cloudformation describe-stacks \
-  --stack-name financial-forecast-app \
-  --query "Stacks[0].Outputs[?OutputKey=='ApplicationURL'].OutputValue" \
-  --output text
-```
-
-## 🔍 Verification Steps
-
-### Check Stack Status
-
-```bash
-# List all deployed stacks
-aws cloudformation list-stacks \
-  --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE \
-  --query "StackSummaries[?contains(StackName, 'financial')].{Name:StackName,Status:StackStatus,CreationTime:CreationTime}" \
-  --output table
-```
-
-### Verify ECS Service
-
-```bash
-# Check ECS cluster status
-aws ecs describe-clusters \
-  --clusters dev-FinancialForecastCluster
-
-# Check service status
-aws ecs describe-services \
-  --cluster dev-FinancialForecastCluster \
-  --services arn:aws:ecs:us-east-1:<ACCOUNT_ID>:service/dev-FinancialForecastCluster/<SERVICE_NAME>
-```
-
-### Test Application
-
-```bash
-# Get application URL
-APPLICATION_URL=$(aws cloudformation describe-stacks \
-  --stack-name financial-forecast-app \
-  --query "Stacks[0].Outputs[?OutputKey=='ApplicationURL'].OutputValue" \
-  --output text)
-
-echo "Application URL: $APPLICATION_URL"
-
-# Test application health
-curl -I $APPLICATION_URL
-```
-
-## 🗂️ Stack Dependencies
-
-```mermaid
-graph TD
-    A[antonio-bedrock-permissions] --> D[Local Development]
-    B[financial-forecast-vpc] --> C[financial-forecast-app]
-    C --> E[Application Running]
-    
-    B --> F[VPC + Subnets]
-    B --> G[PostgreSQL Database]
-    B --> H[Security Groups]
-    
-    C --> I[ECS Cluster]
-    C --> J[Load Balancer]
-    C --> K[Application Service]
-```
-
-## 🏗️ Infrastructure Components
-
-### VPC Stack (`financial-forecast-vpc`)
-- **VPC**: 10.0.0.0/16 CIDR
-- **Public Subnets**: 2 subnets for Load Balancer
-- **Private Subnets**: 2 subnets for ECS tasks
-- **RDS PostgreSQL**: Database with pgvector extension
-- **Security Groups**: Database and Load Balancer security
-- **Secrets Manager**: Database credentials
-
-### Application Stack (`financial-forecast-app`)
-- **ECS Cluster**: Fargate cluster for containerized app
-- **Application Load Balancer**: Internet-facing load balancer
-- **ECS Service**: Auto-scaling Streamlit application
-- **Task Definition**: Container configuration with IAM roles
-- **Target Group**: Health checking and routing
-
-### IAM Stack (`antonio-bedrock-permissions`)
-- **Bedrock Policy**: Full access to AWS Bedrock services
-- **User Attachment**: Attached to specified IAM user
-
-## 🔧 Environment Variables
-
-The application uses these environment variables:
-
-```bash
-# Automatically set by CloudFormation
-AWS_DEFAULT_REGION=us-east-1
-POSTGRES_CONNECTION=<Retrieved from Secrets Manager>
-
-# Required for local development
-AWS_PROFILE=default
-AWS_REGION=us-east-1
-```
-
-## 🚨 Troubleshooting
-
-### Common Issues
-
-1. **Bedrock Access Denied**
-   ```bash
-   # Check model access status
-   aws bedrock list-foundation-models --query "modelSummaries[?contains(modelId, 'titan')]"
-   ```
-
-2. **ECS Task Failing**
-   ```bash
-   # Check ECS task logs
-   aws logs describe-log-groups --log-group-name-prefix "/ecs/dev-FinancialForecast"
-   ```
-
-3. **Database Connection Issues**
-   ```bash
-   # Verify database status
-   aws rds describe-db-instances --db-instance-identifier <DB_IDENTIFIER>
-   ```
-
-### Cleanup Commands
-
-To remove all deployed resources:
-
-```bash
-# Delete application stack
-aws cloudformation delete-stack --stack-name financial-forecast-app
-
-# Wait for application stack deletion
-aws cloudformation wait stack-delete-complete --stack-name financial-forecast-app
-
-# Delete VPC stack
-aws cloudformation delete-stack --stack-name financial-forecast-vpc
-
-# Wait for VPC stack deletion
-aws cloudformation wait stack-delete-complete --stack-name financial-forecast-vpc
-
-# Delete IAM permissions (optional)
-aws cloudformation delete-stack --stack-name antonio-bedrock-permissions
-
-# Delete ECR repository
-aws ecr delete-repository --repository-name financial-forecast-ai --force
-```
-
-## 📊 Monitoring and Logs
-
-### Application Logs
-```bash
-# View ECS task logs
-aws logs tail /ecs/dev-FinancialForecast --follow
-```
-
-### CloudFormation Events
-```bash
-# Monitor stack events
-aws cloudformation describe-stack-events --stack-name financial-forecast-app
-```
-
-### Application Metrics
-- **ECS Service Metrics**: CPU, Memory, Task count
-- **Load Balancer Metrics**: Request count, Response time
-- **Database Metrics**: Connections, Query performance
-
-## 🎯 Production Considerations
-
-### Security Enhancements
-- [ ] Enable HTTPS with SSL certificate
-- [ ] Implement WAF rules
-- [ ] Enable VPC Flow Logs
-- [ ] Set up AWS Config for compliance
-
-### Scalability
-- [ ] Configure Auto Scaling for ECS service
-- [ ] Implement database read replicas
-- [ ] Add CloudFront distribution
-- [ ] Set up multi-region deployment
-
-### Monitoring
-- [ ] Set up CloudWatch dashboards
-- [ ] Configure alerting for failures
-- [ ] Implement distributed tracing
-- [ ] Set up log aggregation
+# 🚀 Financial Forecast AI - Deployment Guide
+
+This guide walks you through deploying the Financial Forecast AI application locally with AWS Bedrock integration. The application uses Streamlit frontend running locally with AWS Bedrock (Amazon Titan models) for AI processing.
+
+## 📋 Prerequisites Checklist
+
+### 🖥️ Local System Requirements
+- [ ] **Windows 10/11** with PowerShell 5.1+
+- [ ] **Python 3.11+** installed and accessible via command line
+- [ ] **Git** for version control and repository cloning
+- [ ] **Internet connection** for downloading dependencies and AWS API access
+- [ ] **Text editor** (VS Code recommended) for configuration files
+
+### ☁️ AWS Account Requirements
+- [ ] **Active AWS Account** with billing enabled
+- [ ] **AWS CLI** installed and configured
+- [ ] **IAM permissions** for Bedrock access
+- [ ] **Bedrock model access** approved for us-east-1 region
 
 ---
 
-## 📞 Support
+## 🚀 Local Deployment with AWS Bedrock
 
-For deployment issues or questions:
-- Check AWS CloudFormation console for stack events
-- Review ECS service logs in CloudWatch
-- Verify Bedrock model access in AWS Console
-- Ensure all prerequisites are met
+### Step 1: System Preparation
 
-**Deployment Complete!** 🎉
+#### 1.1 Verify Python Installation
+```powershell
+# Check Python version (should be 3.11 or higher)
+python --version
 
-Your Financial Forecast AI application should now be accessible via the Application Load Balancer URL.
+# If Python is not installed, download from:
+# https://www.python.org/downloads/windows/
+```
+
+#### 1.2 Install Git (if not already installed)
+```powershell
+# Check if Git is installed
+git --version
+
+# If not installed, download from:
+# https://git-scm.com/download/win
+```
+
+#### 1.3 Install AWS CLI
+```powershell
+# Download and install AWS CLI v2 from:
+# https://awscli.amazonaws.com/AWSCLIV2.msi
+
+# Verify installation
+aws --version
+```
+
+### Step 2: Clone and Setup Project
+
+#### 2.1 Clone Repository
+```powershell
+# Navigate to your desired directory
+cd C:\Users\$env:USERNAME\Desktop
+
+# Clone the repository
+git clone https://github.com/Antonio-Redondo/financial-forecast-ai.git
+cd financial-forecast-ai
+
+# Or if already cloned, navigate to it
+cd c:\Users\anton\OneDrive\Desktop\AI\finalcial_forecast_ia_app
+```
+
+#### 2.2 Create Virtual Environment
+```powershell
+# Create virtual environment
+python -m venv .venv
+
+# Activate virtual environment
+.\.venv\Scripts\Activate.ps1
+
+# Verify activation (should show (.venv) in prompt)
+# (.venv) PS C:\path\to\project>
+```
+
+#### 2.3 Install Dependencies
+```powershell
+# Upgrade pip to latest version
+python -m pip install --upgrade pip
+
+# Install all required packages
+pip install -r requirements.txt
+
+# Verify key packages are installed
+pip list | Select-String "streamlit|boto3|langchain"
+```
+
+### Step 3: AWS Configuration
+
+#### 3.1 Configure AWS Credentials
+```powershell
+# Configure AWS CLI with your credentials
+aws configure
+
+# You'll be prompted for:
+# AWS Access Key ID: [Your access key]
+# AWS Secret Access Key: [Your secret key]
+# Default region name: us-east-1
+# Default output format: json
+```
+
+#### 3.2 Verify AWS Access
+```powershell
+# Test AWS connectivity
+aws sts get-caller-identity
+
+# Expected output should show your UserId, Account, and Arn
+```
+
+**✅ Verify Access:**
+```powershell
+# Check available models
+aws bedrock list-foundation-models --region us-east-1 --query "modelSummaries[?contains(modelId, 'titan')]"
+```
+
+### Step 4: Environment Configuration
+
+#### 4.1 Create Environment File
+```powershell
+# Create .env file in project root
+New-Item -Path ".env" -ItemType File -Force
+```
+
+#### 4.2 Configure Environment Variables
+Add the following content to `.env` file:
+
+```env
+# AWS Configuration (Required)
+AWS_ACCESS_KEY_ID=your_access_key_here
+AWS_SECRET_ACCESS_KEY=your_secret_key_here
+AWS_DEFAULT_REGION=us-east-1
+
+# Application Settings
+USE_LOCAL_STORAGE=false
+DEBUG_MODE=false
+
+# Optional: Custom port (default is 8501)
+STREAMLIT_SERVER_PORT=8520
+```
+
+### Step 5: Launch Application
+
+#### 5.1 Start the Application
+```powershell
+# Ensure virtual environment is activated
+.\.venv\Scripts\Activate.ps1
+
+# Start Streamlit application
+streamlit run src\ui\app.py --server.port 8520
+
+# Alternative with environment variable
+$env:STREAMLIT_SERVER_PORT=8520; streamlit run src\ui\app.py
+```
+
+#### 5.2 Access Application
+- **Local URL**: http://localhost:8520
+- **Network URL**: http://[your-ip]:8520 (for other devices on same network)
+
+### Step 6: Verification and Testing
+
+#### 6.1 Application Health Check
+```powershell
+# Check if application is running
+Invoke-WebRequest -Uri "http://localhost:8520" -Method GET
+```
+
+#### 6.2 Test AI Functionality
+1. **Upload a test document** (PDF, Word, Excel)
+2. **Ask a simple question**: "What is this document about?"
+3. **Verify AI response** using Amazon Titan models
+4. **Check console logs** for any errors
+
+---
+
+## 🏗️ Hybrid Deployment: Local Streamlit + AWS Infrastructure
+
+This approach combines the best of both worlds: **local Streamlit development** with **AWS managed infrastructure** for production-grade data storage and security.
+
+### Architecture Overview
+```
+Local Machine                    AWS Services
+┌─────────────────┐             ┌─────────────────────┐
+│ 🖥️ Streamlit App │ ────────── │ 🧠 Bedrock API      │
+│ 🐍 Python Code  │             │ 🤖 Titan Models     │
+│ 💻 Dev Tools    │             │ 🗄️ RDS PostgreSQL   │
+│ 🔧 Hot Reload   │             │ 🔒 VPC Security     │
+└─────────────────┘             │ 🔑 IAM Permissions  │
+                                └─────────────────────┘
+```
+
+### Step 1: Deploy AWS Infrastructure
+
+First, deploy the AWS infrastructure that will support your local application:
+
+```powershell
+# Navigate to project directory
+cd c:\Users\anton\OneDrive\Desktop\AI\finalcial_forecast_ia_app
+
+# Deploy AWS infrastructure stack
+aws cloudformation create-stack `
+  --stack-name financial-forecast-infrastructure `
+  --template-body file://infra/cloudformation.yaml `
+  --capabilities CAPABILITY_IAM `
+  --parameters ParameterKey=Environment,ParameterValue=hybrid `
+               ParameterKey=UserName,ParameterValue=Antonio `
+  --region us-east-1
+
+# Monitor deployment progress
+aws cloudformation describe-stacks `
+  --stack-name financial-forecast-infrastructure `
+  --query "Stacks[0].StackStatus"
+```
+
+### Step 2: Wait for Infrastructure Deployment
+
+```powershell
+# Wait for stack creation (takes 10-15 minutes)
+aws cloudformation wait stack-create-complete `
+  --stack-name financial-forecast-infrastructure `
+  --region us-east-1
+
+Write-Host "AWS Infrastructure ready for hybrid deployment!" -ForegroundColor Green
+```
+
+### Step 3: Retrieve Infrastructure Configuration
+
+```powershell
+# Get database connection details and other outputs
+aws cloudformation describe-stacks `
+  --stack-name financial-forecast-infrastructure `
+  --region us-east-1 `
+  --query "Stacks[0].Outputs" `
+  --output table
+
+# Save these values for environment configuration
+```
+
+### Step 4: Configure Hybrid Environment
+
+Create a hybrid `.env` file that connects your local app to AWS services:
+
+```powershell
+# Create hybrid environment configuration
+@"
+# AWS Configuration (Required)
+AWS_ACCESS_KEY_ID=your_access_key_here
+AWS_SECRET_ACCESS_KEY=your_secret_key_here
+AWS_DEFAULT_REGION=us-east-1
+
+# Hybrid Configuration - Local App + AWS Infrastructure
+USE_LOCAL_STORAGE=false
+DEPLOYMENT_MODE=hybrid
+
+# Database Configuration (from CloudFormation outputs)
+POSTGRES_CONNECTION=postgresql://username:password@your-rds-endpoint.region.rds.amazonaws.com:5432/financial_forecast_db
+
+# Local Development Settings
+DEBUG_MODE=true
+STREAMLIT_SERVER_PORT=8520
+ENABLE_HOT_RELOAD=true
+
+# Performance Settings for Hybrid Mode
+DATABASE_POOL_SIZE=5
+CACHE_TTL=300
+"@ | Out-File -FilePath ".env" -Encoding UTF8
+```
+
+### Step 5: Install Hybrid Dependencies
+
+```powershell
+# Ensure virtual environment is activated
+.\.venv\Scripts\Activate.ps1
+
+# Install additional packages for AWS database connectivity
+pip install psycopg2-binary sqlalchemy
+
+# Verify PostgreSQL connection tools
+pip list | Select-String "psycopg2|sqlalchemy"
+```
+
+### Step 6: Test Database Connectivity
+
+Before starting the application, verify the connection to AWS infrastructure:
+
+```powershell
+# Test database connection
+python -c "
+import os
+import psycopg2
+from dotenv import load_dotenv
+
+load_dotenv()
+conn_string = os.getenv('POSTGRES_CONNECTION')
+try:
+    conn = psycopg2.connect(conn_string)
+    print('✅ Database connection successful!')
+    print(f'Connected to: {conn.get_dsn_parameters()[\"host\"]}')
+    conn.close()
+except Exception as e:
+    print(f'❌ Database connection failed: {e}')
+"
+```
+
+### Step 7: Launch Hybrid Application
+
+Start the Streamlit application with AWS backend:
+
+```powershell
+# Start hybrid application
+streamlit run src\ui\app.py `
+  --server.port 8520 `
+  --server.runOnSave true `
+  --browser.serverAddress localhost
+
+# The application will now use:
+# - Local Streamlit server (http://localhost:8520)
+# - AWS RDS PostgreSQL for data storage
+# - AWS Bedrock for AI processing
+# - Local file uploads with cloud persistence
+```
+
+### Step 8: Verify Hybrid Deployment
+
+Test all components of the hybrid setup:
+
+```powershell
+# 1. Check application health
+Invoke-WebRequest -Uri "http://localhost:8520" -Method GET
+
+# 2. Test AWS Bedrock connectivity
+aws bedrock list-foundation-models --region us-east-1 --query "modelSummaries[?contains(modelId, 'titan')]"
+
+# 3. Verify database tables creation (first run)
+python -c "
+import os
+import psycopg2
+from dotenv import load_dotenv
+
+load_dotenv()
+conn_string = os.getenv('POSTGRES_CONNECTION')
+conn = psycopg2.connect(conn_string)
+cur = conn.cursor()
+cur.execute('SELECT table_name FROM information_schema.tables WHERE table_schema = ''public'';')
+tables = cur.fetchall()
+print(f'Database tables: {[table[0] for table in tables]}')
+conn.close()
+"
+```
+
+### Benefits of Hybrid Deployment
+
+#### ✅ **Development Advantages:**
+- **Fast iteration** with local Streamlit hot reload
+- **Direct debugging** access to Python code
+- **Immediate feedback** on UI changes
+- **Local development tools** integration
+
+#### ✅ **Production Infrastructure:**
+- **Managed database** with automatic backups
+- **VPC security** for data protection
+- **Scalable storage** with RDS PostgreSQL
+- **Enterprise compliance** ready
+
+#### ✅ **Cost Optimization:**
+- **No container orchestration** costs (ECS/EKS)
+- **No load balancer** charges
+- **Pay only for database and Bedrock usage**
+- **Scale infrastructure independently**
+
+### Hybrid Configuration Options
+
+#### Development Mode (Default)
+```env
+DEBUG_MODE=true
+USE_LOCAL_STORAGE=false
+DATABASE_POOL_SIZE=2
+CACHE_TTL=60
+```
+
+#### Production-like Testing
+```env
+DEBUG_MODE=false
+USE_LOCAL_STORAGE=false
+DATABASE_POOL_SIZE=10
+CACHE_TTL=300
+ENABLE_METRICS=true
+```
+
+### Monitoring Hybrid Deployment
+
+```powershell
+# Monitor local application performance
+Get-Process | Where-Object {$_.ProcessName -eq "python"} | Select-Object ProcessName, CPU, WorkingSet
+
+# Monitor AWS RDS performance
+aws rds describe-db-instances `
+  --db-instance-identifier $(aws cloudformation describe-stacks --stack-name financial-forecast-infrastructure --query "Stacks[0].Outputs[?OutputKey=='DatabaseInstanceId'].OutputValue" --output text) `
+  --query "DBInstances[0].DBInstanceStatus"
+
+# Check Bedrock usage
+aws bedrock list-foundation-models --region us-east-1
+```
+
+### Troubleshooting Hybrid Setup
+
+#### ❌ "Database connection timeout"
+```powershell
+# Solution: Check VPC security groups allow your IP
+# Get your public IP
+$ip = (Invoke-WebRequest -Uri "https://api.ipify.org").Content
+Write-Host "Your IP: $ip"
+
+# Update security group to allow your IP (replace sg-xxxxx with actual ID)
+aws ec2 authorize-security-group-ingress `
+  --group-id sg-xxxxx `
+  --protocol tcp `
+  --port 5432 `
+  --cidr "$ip/32"
+```
+
+#### ❌ "SSL connection required"
+```powershell
+# Solution: Update connection string with SSL
+# Add to .env file:
+POSTGRES_CONNECTION=postgresql://username:password@endpoint:5432/dbname?sslmode=require
+```
+
+#### ❌ "Local app can't reach AWS"
+```powershell
+# Solution: Verify AWS credentials and region
+aws sts get-caller-identity
+aws configure get region
+```
+
+---
+
+## 🏗️ Optional: AWS Infrastructure Deployment
+
+If you want to deploy the full AWS infrastructure (VPC, Database, IAM) for production use without the hybrid approach, you can use the included CloudFormation templates:
+
+### Deploy Complete Infrastructure Stack
+```powershell
+# Navigate to project directory
+cd c:\Users\anton\OneDrive\Desktop\AI\finalcial_forecast_ia_app
+
+# Deploy unified CloudFormation stack
+aws cloudformation create-stack `
+  --stack-name financial-forecast-complete `
+  --template-body file://infra/cloudformation.yaml `
+  --capabilities CAPABILITY_IAM `
+  --parameters ParameterKey=Environment,ParameterValue=dev `
+               ParameterKey=UserName,ParameterValue=Antonio `
+  --region us-east-1
+
+# Monitor deployment status
+aws cloudformation describe-stacks `
+  --stack-name financial-forecast-complete `
+  --region us-east-1 `
+  --query "Stacks[0].StackStatus"
+```
+
+### Wait for Infrastructure Completion
+```powershell
+# Wait for stack creation (takes 10-15 minutes)
+aws cloudformation wait stack-create-complete `
+  --stack-name financial-forecast-complete `
+  --region us-east-1
+
+Write-Host "Infrastructure deployment completed!" -ForegroundColor Green
+```
+
+### Get Infrastructure Outputs
+```powershell
+# Get database connection and other outputs
+aws cloudformation describe-stacks `
+  --stack-name financial-forecast-complete `
+  --region us-east-1 `
+  --query "Stacks[0].Outputs" `
+  --output table
+```
+
+### Update Environment for AWS Database
+If you deployed the infrastructure, update your `.env` file:
+```env
+# AWS Configuration (Required)
+AWS_ACCESS_KEY_ID=your_access_key_here
+AWS_SECRET_ACCESS_KEY=your_secret_key_here
+AWS_DEFAULT_REGION=us-east-1
+
+# Database Configuration (from CloudFormation outputs)
+USE_LOCAL_STORAGE=false
+POSTGRES_CONNECTION=postgresql://username:password@endpoint:5432/financial_forecast_db
+
+# Application Settings
+DEBUG_MODE=false
+STREAMLIT_SERVER_PORT=8520
+```
+
+---
+
+## 🔧 Advanced Configuration
+
+### Custom Port Configuration
+```powershell
+# Use custom port if 8520 is busy
+streamlit run src\ui\app.py --server.port 8521
+
+# Check what's using a port
+netstat -ano | findstr :8520
+```
+
+### Background Service Setup
+```powershell
+# Run as background service (keeps running when terminal closes)
+Start-Process powershell -ArgumentList "-Command", "cd 'c:\path\to\project'; .\.venv\Scripts\Activate.ps1; streamlit run src\ui\app.py --server.port 8520" -WindowStyle Hidden
+```
+
+### Firewall Configuration (for network access)
+```powershell
+# Allow inbound connections on port 8520
+New-NetFirewallRule -DisplayName "Financial Forecast AI" -Direction Inbound -Port 8520 -Protocol TCP -Action Allow
+```
+
+---
+
+## 🔍 Troubleshooting Guide
+
+### Common Issues and Solutions
+
+#### ❌ "Python not found"
+```powershell
+# Solution: Add Python to PATH or reinstall
+# Download from: https://www.python.org/downloads/
+# Ensure "Add Python to PATH" is checked during installation
+```
+
+#### ❌ "Virtual environment activation failed"
+```powershell
+# Solution: Change execution policy
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+
+# Then try activation again
+.\.venv\Scripts\Activate.ps1
+```
+
+#### ❌ "AWS credentials not configured"
+```powershell
+# Solution: Reconfigure AWS CLI
+aws configure
+
+# Or set environment variables directly
+$env:AWS_ACCESS_KEY_ID="your_key"
+$env:AWS_SECRET_ACCESS_KEY="your_secret"
+$env:AWS_DEFAULT_REGION="us-east-1"
+```
+
+#### ❌ "Bedrock access denied"
+```powershell
+# Solution: Check model access in AWS Console
+# Go to Bedrock → Model access → Request access for Titan models
+aws bedrock list-foundation-models --region us-east-1
+```
+
+#### ❌ "Port 8520 already in use"
+```powershell
+# Solution: Find and kill process using the port
+$process = Get-NetTCPConnection -LocalPort 8520 -ErrorAction SilentlyContinue
+if ($process) {
+    Stop-Process -Id $process.OwningProcess -Force
+}
+
+# Or use different port
+streamlit run src\ui\app.py --server.port 8521
+```
+
+#### ❌ "Module not found" errors
+```powershell
+# Solution: Reinstall dependencies
+.\.venv\Scripts\Activate.ps1
+pip install --upgrade pip
+pip install -r requirements.txt --force-reinstall
+```
+
+#### ❌ "CloudFormation deployment failed"
+```powershell
+# Solution: Check stack events for details
+aws cloudformation describe-stack-events `
+  --stack-name financial-forecast-complete `
+  --region us-east-1 `
+  --query "StackEvents[?ResourceStatus=='CREATE_FAILED']"
+
+# Delete failed stack and retry
+aws cloudformation delete-stack `
+  --stack-name financial-forecast-complete `
+  --region us-east-1
+```
+
+---
+
+## 📊 Monitoring and Maintenance
+
+### Application Health Monitoring
+```powershell
+# Check application status
+Invoke-WebRequest -Uri "http://localhost:8520/_stcore/health" -Method GET
+
+# Monitor system resources
+Get-Process | Where-Object {$_.ProcessName -eq "python"} | Select-Object ProcessName, CPU, WorkingSet
+```
+
+### Log Management
+```powershell
+# View real-time logs
+Get-Content -Path "streamlit.log" -Wait -Tail 10
+
+# Create log rotation script
+$logPath = "C:\path\to\logs\streamlit.log"
+if ((Get-Item $logPath).Length -gt 10MB) {
+    Move-Item $logPath ($logPath + ".old")
+}
+```
+
+### Backup Procedures
+```powershell
+# Backup local storage (if using local files)
+$backupPath = "C:\Backups\FinancialForecast\$(Get-Date -Format 'yyyy-MM-dd')"
+New-Item -ItemType Directory -Path $backupPath -Force
+Copy-Item -Path "data\*" -Destination $backupPath -Recurse
+```
+
+---
+
+## 🧹 Cleanup and Uninstallation
+
+### Remove Local Installation
+```powershell
+# Deactivate virtual environment
+deactivate
+
+# Remove virtual environment
+Remove-Item -Path ".venv" -Recurse -Force
+
+# Remove project directory (optional)
+cd ..
+Remove-Item -Path "financial-forecast-ai" -Recurse -Force
+```
+
+### Remove AWS Infrastructure (if deployed)
+```powershell
+# Delete CloudFormation stack (works for both hybrid and full deployments)
+aws cloudformation delete-stack `
+  --stack-name financial-forecast-infrastructure `
+  --region us-east-1
+
+# Or delete the complete stack if using the full deployment option
+aws cloudformation delete-stack `
+  --stack-name financial-forecast-complete `
+  --region us-east-1
+
+# Wait for deletion to complete
+aws cloudformation wait stack-delete-complete `
+  --stack-name financial-forecast-infrastructure `
+  --region us-east-1
+
+Write-Host "AWS infrastructure removed!" -ForegroundColor Green
+```
+
+---
+
+## ✅ Deployment Completion Checklist
+
+### Local Development Deployment
+- [ ] Python 3.11+ installed and verified
+- [ ] Virtual environment created and activated
+- [ ] Dependencies installed successfully
+- [ ] AWS CLI configured with valid credentials
+- [ ] Bedrock model access approved
+- [ ] Environment variables configured
+- [ ] Application starts without errors
+- [ ] Can access UI at http://localhost:8520
+- [ ] Can upload documents and get AI responses
+- [ ] Console shows no critical errors
+
+---
+
+## 🎯 What's Next?
+
+### After Successful Deployment
+
+1. **📚 Learn the Interface**
+   - Upload sample financial documents
+   - Try different types of analysis queries
+   - Explore the chat interface features
+
+2. **🔧 Customize for Your Needs**
+   - Add your organization's document templates
+   - Configure custom analysis prompts
+   - Set up user-specific workflows
+
+3. **📈 Scale Your Usage**
+   - Process larger document sets
+   - Integrate with existing systems
+   - Train team members on the platform
+
+4. **🛡️ Enhance Security**
+   - Implement additional access controls
+   - Set up audit logging
+   - Configure backup and disaster recovery
+
+---
+
+## 📞 Support and Resources
+
+### Getting Help
+- **📧 Issues**: Create GitHub issues for bugs or feature requests
+- **📖 Documentation**: Check README.md for usage instructions
+- **🔍 AWS Support**: Use AWS support for Bedrock-related issues
+- **💬 Community**: Join financial AI communities for best practices
+
+### Useful Links
+- **AWS Bedrock Documentation**: https://docs.aws.amazon.com/bedrock/
+- **Streamlit Documentation**: https://docs.streamlit.io/
+- **Python Virtual Environments**: https://docs.python.org/3/tutorial/venv.html
+- **AWS CLI Configuration**: https://docs.aws.amazon.com/cli/latest/userguide/cli-configure.html
+
+---
+
+**🎉 Congratulations! Your Financial Forecast AI application is now deployed and ready to use!**
+
+Access your application at: **http://localhost:8520**
