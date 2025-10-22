@@ -176,6 +176,33 @@ Resources:
       DeleteAutomatedBackups: true
       BackupRetentionPeriod: 0
 
+  # S3 Bucket for Documents (must be defined before IAM policy)
+  DocumentsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub financial-forecast-documents-${AWS::AccountId}-${AWS::Region}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldVersions
+            Status: Enabled
+            NoncurrentVersionExpirationInDays: 30
+      Tags:
+        - Key: Name
+          Value: !Sub ${Environment}-FinancialForecastDocuments
+        - Key: Environment
+          Value: !Ref Environment
+
   # IAM Resources for Bedrock Access
   BedrockPolicy:
     Type: AWS::IAM::Policy
@@ -205,6 +232,18 @@ Resources:
               - logs:DescribeLogGroups
               - logs:DescribeLogStreams
             Resource: '*'
+          - Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+              - s3:DeleteObject
+            Resource: 
+              - !Sub 'arn:aws:s3:::${DocumentsBucket}/*'
+          - Effect: Allow
+            Action:
+              - s3:ListBucket
+            Resource: 
+              - !Sub 'arn:aws:s3:::${DocumentsBucket}'
       Users:
         - !Ref UserName
 
@@ -266,6 +305,19 @@ Outputs:
   AttachedToUser:
     Description: User that received Bedrock permissions
     Value: !Ref UserName
+
+  # S3 Outputs
+  DocumentsBucketName:
+    Description: S3 bucket for storing documents
+    Value: !Ref DocumentsBucket
+    Export:
+      Name: !Sub ${AWS::StackName}-DocumentsBucket
+
+  DocumentsBucketArn:
+    Description: S3 bucket ARN for storing documents
+    Value: !GetAtt DocumentsBucket.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-DocumentsBucketArn
     
   NextSteps:
     Description: What to do after deploying this template
@@ -276,6 +328,8 @@ Outputs:
       4. Fill out the use case form for financial analysis
       5. Wait for approval and restart your application
       6. Database is now publicly accessible for development
+      7. Upload documents to S3 bucket: ${DocumentsBucket}
+      8. Set S3_BUCKET_NAME environment variable to: ${DocumentsBucket}
 
   # Stack Summary
   StackSummary:
@@ -284,6 +338,7 @@ Outputs:
       Financial Forecast AI Infrastructure - ${Environment} Environment
       - VPC: ${VPC}
       - Database: ${PostgresDB}
+      - Documents Bucket: ${DocumentsBucket}
       - Bedrock Access: ${BedrockPolicy} for ${UserName}
       - Region: ${AWS::Region}
       - Account: ${AWS::AccountId}

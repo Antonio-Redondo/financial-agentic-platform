@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 import numpy as np
 from datetime import datetime
 import time
+import threading
 
 # Add the project root directory to the Python path
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
@@ -292,6 +293,68 @@ def create_sidebar():
                         st.error(f"❌ Error testing document search: {str(e)}")
                 else:
                     st.error("❌ Vector store not available")
+        
+        st.markdown("---")
+        
+        # S3 Knowledge Base Status
+        st.markdown("### 🗂️ Knowledge Base Status")
+        
+        # Check for background processing completion
+        check_s3_background_status()
+        
+        # Show S3 status based on current state
+        s3_status = st.session_state.get("s3_status", "ready")
+        
+        if s3_status == "ready":
+            st.info("📋 Ready to sync with S3")
+            if st.button("🚀 Start S3 Sync", type="primary"):
+                start_s3_background_processing()
+                st.rerun()
+        elif s3_status == "processing":
+            st.info("🔄 Loading documents from S3...")
+            # Auto-refresh every 3 seconds while processing
+            time.sleep(3)
+            st.rerun()
+        elif s3_status == "completed":
+            results = st.session_state.get("s3_init_results", {})
+            if results.get("documents_processed", 0) > 0:
+                st.success(f"✅ S3 Auto-load: {results['documents_processed']} documents indexed")
+                
+                with st.expander("� View S3 Document Details"):
+                    st.write(f"**Processing Time:** {results.get('processing_time', 0):.2f}s")
+                    st.write(f"**Total Documents Found:** {results.get('total_documents', 0)}")
+                    st.write(f"**New Documents Indexed:** {results['documents_processed']}")
+                    st.write(f"**Duplicates Skipped:** {results.get('skipped_duplicates', 0)}")
+                    
+                    if results.get('processed_documents'):
+                        st.write("**Processed Documents:**")
+                        for doc in results['processed_documents']:
+                            st.text(f"• {doc['filename']} ({doc['chunks']} chunks, {doc['size']} chars)")
+            else:
+                st.info("ℹ️ S3 bucket is empty or no new documents found")
+                
+            if st.button("🔄 Refresh from S3"):
+                # Reset status to trigger re-processing
+                st.session_state.s3_status = "ready"
+                st.session_state.s3_background_started = False
+                st.rerun()
+                
+        elif s3_status == "error":
+            error_msg = st.session_state.get("s3_init_error", "Unknown error")
+            st.error(f"❌ S3 processing failed: {error_msg}")
+            
+            if st.button("🔄 Retry S3 Processing"):
+                st.session_state.s3_status = "ready"
+                st.session_state.s3_background_started = False
+                st.session_state.s3_init_error = None
+                st.rerun()
+                
+        elif s3_status == "disabled":
+            st.warning("⚠️ S3 auto-loading is disabled")
+            st.write("To enable S3 auto-loading:")
+            st.code("S3_AUTO_LOAD_ENABLED=true")
+        else:
+            st.warning(f"⚠️ Unknown S3 status: {s3_status}")
         
         st.markdown("---")
         
@@ -629,20 +692,122 @@ def initialize_session_state():
         try:
             st.session_state.agent = FinancialAgent()
             print("✅ FinancialAgent initialized successfully")
+            
         except Exception as e:
             st.error(f"Failed to initialize agent: {str(e)}")
             st.session_state.agent = None
+    
     if "processed_docs" not in st.session_state:
         st.session_state.processed_docs = []
     if "conversation_count" not in st.session_state:
         st.session_state.conversation_count = 0
+    
+    # Initialize S3 status tracking (but don't start processing)
+    if "s3_status" not in st.session_state:
+        st.session_state.s3_status = "ready"  # Ready to start when requested
+    if "s3_init_results" not in st.session_state:
+        st.session_state.s3_init_results = None
+    if "s3_init_error" not in st.session_state:
+        st.session_state.s3_init_error = None
+    if "s3_background_started" not in st.session_state:
+        st.session_state.s3_background_started = False
+
+def s3_background_thread(agent, callback):
+    """Background thread function for S3 processing"""
+    try:
+        print("🔄 Starting S3 background processing...")
+        
+        from src.agents.app_initialization import AppInitializationService
+        
+        init_service = AppInitializationService(agent.vector_store)
+        
+        if init_service.is_s3_enabled():
+            print("🔄 S3 auto-loading enabled, initializing knowledge base...")
+            
+            init_results = init_service.initialize_knowledge_base(show_progress=False)
+            
+            if init_results['success']:
+                callback('completed', init_results, None)
+                print(f"✅ S3 knowledge base initialized: {init_results['message']}")
+            else:
+                callback('error', None, init_results['message'])
+                print(f"❌ S3 initialization failed: {init_results['message']}")
+        else:
+            callback('disabled', None, None)
+            print("ℹ️ S3 auto-loading not enabled")
+            
+    except Exception as e:
+        callback('error', None, str(e))
+        print(f"❌ S3 initialization error: {str(e)}")
+
+def s3_callback(status, results, error):
+    """Callback to update session state from background thread"""
+    # Store in temporary files since we can't access session_state from thread
+    import json
+    with open('.s3_status.json', 'w') as f:
+        json.dump({
+            'status': status,
+            'results': results,
+            'error': error
+        }, f, default=str)
+
+def check_s3_background_status():
+    """Check if S3 background processing has completed"""
+    try:
+        import json
+        import os
+        if os.path.exists('.s3_status.json'):
+            with open('.s3_status.json', 'r') as f:
+                data = json.load(f)
+            
+            # Update session state
+            st.session_state.s3_status = data['status']
+            if data['results']:
+                st.session_state.s3_init_results = data['results']
+            if data['error']:
+                st.session_state.s3_init_error = data['error']
+            
+            # Clean up
+            os.remove('.s3_status.json')
+            return True
+    except Exception as e:
+        print(f"Error checking S3 status: {e}")
+    return False
+
+def start_s3_background_processing():
+    """Start S3 processing in background after app is running"""
+    if (st.session_state.agent and 
+        not st.session_state.s3_background_started and
+        st.session_state.s3_status == "ready"):
+        
+        st.session_state.s3_background_started = True
+        st.session_state.s3_status = "processing"
+        
+        # Start background thread
+        thread = threading.Thread(target=s3_background_thread, args=(st.session_state.agent, s3_callback), daemon=True)
+        thread.start()
+        print("🔄 S3 background processing thread started...")
+
+def initialize_s3_background():
+    """Legacy function - S3 no longer starts at initialization"""
+    pass
+
+def process_s3_if_queued():
+    """Legacy function - replaced by fragment"""
+    pass
+
+def start_s3_after_ui_ready():
+    """S3 processing is now manual only - no automatic startup processing"""
+    pass
 
 def main():
     """Main application function"""
     load_custom_css()
     initialize_session_state()
     
-    # Create header
+    # App starts immediately - NO S3 processing at startup
+    
+    # Create header - UI shows immediately
     create_header()
     
     # Create metrics dashboard
@@ -656,6 +821,9 @@ def main():
     
     with col2:
         create_sidebar()
+    
+    # Only start S3 processing after UI is fully rendered
+    start_s3_after_ui_ready()
     
     # Footer
     st.markdown("---")

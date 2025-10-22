@@ -17,11 +17,33 @@ class VectorStore:
             # Initialize PGVector with connection string from environment
             connection_string = os.getenv("PGVECTOR_CONNECTION_STRING")
             if connection_string:
-                self.vector_store = PGVector(
-                    connection_string=connection_string,
-                    embedding_function=self.embeddings,
-                    collection_name="financial_documents"
-                )
+                try:
+                    self.vector_store = PGVector(
+                        connection_string=connection_string,
+                        embedding_function=self.embeddings,
+                        collection_name="financial_documents"
+                    )
+                except Exception as e:
+                    if "already defined" in str(e):
+                        # Try to connect to existing store
+                        print("⚠️ Vector store tables already exist, connecting to existing store...")
+                        try:
+                            # Use from_existing_index to connect to existing tables
+                            self.vector_store = PGVector.from_existing_index(
+                                embedding=self.embeddings,
+                                connection_string=connection_string,
+                                collection_name="financial_documents"
+                            )
+                            print("✅ Successfully connected to existing vector store")
+                        except Exception as e2:
+                            print(f"❌ Failed to connect to existing vector store: {str(e2)}")
+                            print("⚠️ Falling back to local storage")
+                            self.vector_store = None
+                            self.use_local_storage = True
+                    else:
+                        print(f"❌ Error initializing vector store: {str(e)}")
+                        self.vector_store = None
+                        self.use_local_storage = True
             else:
                 self.vector_store = None
                 print("Warning: No database connection string found. Using local storage.")
