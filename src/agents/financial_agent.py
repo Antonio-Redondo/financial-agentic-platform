@@ -4,6 +4,7 @@ import os
 from dotenv import load_dotenv
 from .analyst import FinancialAnalyst
 from .vector_store import VectorStore
+from .workflow import create_financial_workflow
 
 load_dotenv()
 
@@ -12,8 +13,44 @@ class FinancialAgent:
         self.analyst = FinancialAnalyst()
         self.vector_store = VectorStore()
         
+        # Initialize LangGraph multi-agent workflow
+        try:
+            self.workflow = create_financial_workflow(self.vector_store)
+            self.use_multi_agent = True
+            print("✅ Multi-agent LangGraph workflow initialized successfully")
+        except Exception as e:
+            print(f"⚠️ Failed to initialize multi-agent workflow: {e}")
+            print("🔄 Falling back to single-agent mode")
+            self.workflow = None
+            self.use_multi_agent = False
+        
     def search_and_analyze(self, query: str) -> str:
-        """Search documents and analyze the results"""
+        """Search documents and analyze the results using multi-agent workflow when possible"""
+        print(f"🔍 Processing query: {query}")
+        
+        # Use multi-agent workflow if available
+        if self.use_multi_agent and self.workflow:
+            try:
+                print("🤖 Using LangGraph multi-agent workflow")
+                workflow_result = self.workflow.execute_workflow(query)
+                
+                if workflow_result.get("success", False):
+                    print(f"✅ Multi-agent workflow completed successfully (confidence: {workflow_result.get('confidence', 0):.1%})")
+                    return workflow_result.get("response", "No response generated")
+                else:
+                    print(f"❌ Multi-agent workflow failed: {workflow_result.get('response', 'Unknown error')}")
+                    print("🔄 Falling back to single-agent mode")
+                    
+            except Exception as e:
+                print(f"❌ Multi-agent workflow error: {e}")
+                print("🔄 Falling back to single-agent mode")
+        
+        # Fallback to original single-agent logic
+        print("🔄 Using single-agent mode")
+        return self._single_agent_analysis(query)
+    
+    def _single_agent_analysis(self, query: str) -> str:
+        """Original single-agent analysis logic (fallback)"""
         print(f"🔍 Processing query: {query}")
         
         # Determine if user is asking for document content specifically
@@ -151,29 +188,47 @@ Deliver expert-level financial insights addressing the user's question.
         # Get analysis from the financial analyst
         analysis_result = self.analyst.analyze(analysis_query)
         return analysis_result.get("analysis", "No analysis available.")
-        
-    def create_agent(self):
-        """For compatibility - returns self"""
-        return self
     
     def process_query(self, query: str) -> Dict:
-        """Process a user query using the agent"""
+        """Process a user query using multi-agent or single-agent approach"""
         try:
-            # Get analysis using search and analyze
+            # Check for complex analysis keywords that benefit from multi-agent approach
+            complex_keywords = ['risk', 'market', 'forecast', 'analysis', 'assessment', 'recommendation', 'strategy', 'prepayment', 'portfolio']
+            is_complex_query = any(keyword in query.lower() for keyword in complex_keywords)
+            
+            if self.use_multi_agent and self.workflow and is_complex_query:
+                print("🎯 Complex query detected - using multi-agent workflow")
+                workflow_result = self.workflow.execute_workflow(query)
+                
+                if workflow_result.get("success", False):
+                    return {
+                        "output": workflow_result.get("response", "No response generated"),
+                        "workflow_used": "multi-agent",
+                        "confidence": workflow_result.get("confidence", 0.5)
+                    }
+                else:
+                    print("🔄 Multi-agent failed, falling back to single-agent")
+            
+            # Use single-agent approach for simple queries or as fallback
             analysis_result = self.search_and_analyze(query)
             
-            # Structure the response - let the AI model provide all content
-            response = {
-                "output": analysis_result
+            return {
+                "output": analysis_result,
+                "workflow_used": "single-agent",
+                "confidence": 0.8
             }
                 
-            return response
-            
         except Exception as e:
             # Fallback response in case of errors
             return {
-                "output": f"I'm currently experiencing technical difficulties. Please try again later. Error: {str(e)}"
+                "output": f"I'm currently experiencing technical difficulties. Please try again later. Error: {str(e)}",
+                "workflow_used": "error",
+                "confidence": 0.0
             }
+    
+    def create_agent(self):
+        """For compatibility - returns self"""
+        return self
             
     def get_document_stats(self) -> Dict:
         """Get statistics about indexed documents"""

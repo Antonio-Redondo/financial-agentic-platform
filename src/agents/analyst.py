@@ -16,9 +16,10 @@ class FinancialAnalyst:
             self.llm = BedrockChat(
                 model_id="amazon.titan-tg1-large",
                 model_kwargs={
-                    "temperature": 0.8,
-                    "maxTokenCount": 4000,
-                    "topP": 0.9
+                     "temperature": 0.8,     # Controls randomness
+                     "maxTokenCount": 4000,  # Max response length
+                     "topP": 0.9,           # Nucleus sampling (top 90%)
+                     "topK": 50             # Top-K sampling (top 50 tokens)
                 }
             )
             print("✅ Amazon Titan Text ready for financial analysis!")
