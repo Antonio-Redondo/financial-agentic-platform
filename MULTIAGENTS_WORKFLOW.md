@@ -25,14 +25,17 @@ This document visually explains the multi-agent workflow architecture in the Fin
 
 ## 2. Key Components
 
-### 🕵️‍♂️ Agents
 
-| Agent | Role |
-|-------|------|
-| 📄 **DocumentAnalysisAgent** | Extracts and summarizes key financial data |
-| ⚠️ **RiskAssessmentAgent** | Assesses credit, market, and operational risks |
-| 📊 **MarketAnalysisAgent** | Analyzes market conditions and trends |
-| 💡 **RecommendationAgent** | Synthesizes outputs into recommendations |
+### 🕵️‍♂️ Agents Involved
+
+| # | Agent Name | Description | When Are They Called? | Python File |
+|---|------------|-------------|----------------------|-------------|
+| 1 | 📄 **DocumentAnalysisAgent** | Extracts and summarizes key financial data from relevant documents. Performs vector search, highlights trends, and checks data quality. | **Step 1**: Called immediately after user query is received to provide context for all subsequent agents. | `src/agents/workflow.py` |
+| 2 | ⚠️ **RiskAssessmentAgent** | Assesses credit, market, and operational risks using the document context. Produces quantitative and qualitative risk metrics. | **Step 2**: Called after DocumentAnalysisAgent, using its output to evaluate risks. | `src/agents/workflow.py` |
+| 3 | 📊 **MarketAnalysisAgent** | Analyzes current market conditions, economic factors, and prepayment trends. | **Step 3**: Called after RiskAssessmentAgent, leveraging both document and risk analysis outputs. | `src/agents/workflow.py` |
+| 4 | 💡 **RecommendationAgent** | Synthesizes all previous agent outputs into an executive summary, actionable recommendations, projections, and risk management plan. | **Step 4 (Final)**: Called after all other agents to produce the final output for the user interface. | `src/agents/workflow.py` |
+
+---
 
 ### 🧩 Workflow Orchestrator
 - **FinancialWorkflow**: LangGraph-based orchestrator managing agent order, state, and errors.
