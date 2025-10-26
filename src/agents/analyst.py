@@ -1,5 +1,9 @@
-from typing import Dict
+# Standard library imports
+import os
 import time
+from typing import Dict
+
+# Third-party imports will be imported inline where needed to avoid unnecessary loading
 
 class FinancialAnalyst:
     def __init__(self):
@@ -12,14 +16,13 @@ class FinancialAnalyst:
             print("🚀 Initializing Amazon Titan Text...")
             from langchain_community.chat_models import BedrockChat
             
-            # Use the previous working Amazon Titan model
+           
             self.llm = BedrockChat(
                 model_id="amazon.titan-tg1-large",
                 model_kwargs={
                      "temperature": 0.8,     # Controls randomness
                      "maxTokenCount": 4000,  # Max response length
-                     "topP": 0.9,           # Nucleus sampling (top 90%)
-                     "topK": 50             # Top-K sampling (top 50 tokens)
+                     "topP": 0.9            # Nucleus sampling (top 90%)
                 }
             )
             print("✅ Amazon Titan Text ready for financial analysis!")

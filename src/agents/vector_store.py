@@ -1,173 +1,281 @@
-from typing import Dict, List
-from langchain_community.vectorstores.pgvector import PGVector
-from langchain_community.embeddings import BedrockEmbeddings
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+# Standard library imports
 import os
+import re
+import time
+from typing import Dict, List
+
+# Third-party imports
+from langchain_community.embeddings import BedrockEmbeddings
+from langchain_community.vectorstores.pgvector import PGVector
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+# Local imports
+from .langsmith_integration import langsmith_manager, trace_financial_operation
+
+
+class FinancialDocumentSplitter:
+    """Smart splitter for financial documents that preserves section structure"""
+    
+    def __init__(self, chunk_size: int = 1200, chunk_overlap: int = 100):
+        self.chunk_size = chunk_size
+        self.chunk_overlap = chunk_overlap
+        
+    def split_text(self, text: str) -> List[str]:
+        """Split financial document while preserving logical sections"""
+        chunks = []
+        
+        # Define section patterns based on the document format
+        section_patterns = [
+            r"###############\s+DEAL INFORMATION\s+###############",
+            r"###############\s+COLLATERAL INFORMATION\s+###############", 
+            r"###############\s+TRANCHE INFORMATION\s+###############",
+            r"###############\s+REREMIC INFORMATION\s+###############",
+            r"###############\s+RECOMBINABLE INFORMATION\s+###############"
+        ]
+        
+        # Split by major sections first
+        sections = self._split_by_sections(text, section_patterns)
+        
+        for section in sections:
+            # For each section, create smart chunks
+            section_chunks = self._create_section_chunks(section)
+            chunks.extend(section_chunks)
+            
+        return chunks
+    
+    def _split_by_sections(self, text: str, patterns: List[str]) -> List[str]:
+        """Split text by major section headers"""
+        sections = []
+        current_pos = 0
+        
+        for pattern in patterns:
+            match = re.search(pattern, text[current_pos:], re.IGNORECASE)
+            if match:
+                # Add previous section if exists
+                if current_pos > 0:
+                    section_content = text[current_pos:current_pos + match.start()].strip()
+                    if section_content:
+                        sections.append(section_content)
+                
+                # Find start of current section
+                section_start = current_pos + match.start()
+                
+                # Find next section or end of document
+                next_section_pos = len(text)
+                for next_pattern in patterns:
+                    if next_pattern != pattern:
+                        next_match = re.search(next_pattern, text[section_start + len(match.group()):], re.IGNORECASE)
+                        if next_match:
+                            next_section_pos = min(next_section_pos, section_start + len(match.group()) + next_match.start())
+                
+                # Extract complete section
+                section_content = text[section_start:next_section_pos].strip()
+                if section_content:
+                    sections.append(section_content)
+                
+                current_pos = next_section_pos
+        
+        # Add remaining content
+        if current_pos < len(text):
+            remaining = text[current_pos:].strip()
+            if remaining:
+                sections.append(remaining)
+                
+        return sections if sections else [text]
+    
+    def _create_section_chunks(self, section: str) -> List[str]:
+        """Create smart chunks within a section"""
+        chunks = []
+        
+        # Check if this is the Deal Information section (most important for queries)
+        if "DEAL INFORMATION" in section.upper():
+            # Keep deal header together - this is critical for tranche count queries
+            chunks.append(section)
+            return chunks
+        
+        # Check if this is Tranche Information section
+        elif "TRANCHE INFORMATION" in section.upper():
+            # Split by individual tranches (each starts with TRANCHE_NUMBER)
+            tranche_chunks = self._split_tranche_section(section)
+            chunks.extend(tranche_chunks)
+            return chunks
+        
+        # For other sections, use size-based chunking with preservation
+        elif len(section) <= self.chunk_size:
+            # Section fits in one chunk
+            chunks.append(section)
+        else:
+            # Need to split section, but preserve structure
+            subsection_chunks = self._split_preserving_structure(section)
+            chunks.extend(subsection_chunks)
+            
+        return chunks
+    
+    def _split_tranche_section(self, section: str) -> List[str]:
+        """Split tranche section by individual tranches"""
+        chunks = []
+        
+        # Find all tranche starts
+        tranche_pattern = r"\nTRANCHE_NUMBER\s+:\s+\d+"
+        matches = list(re.finditer(tranche_pattern, section))
+        
+        if not matches:
+            # No tranches found, return as single chunk
+            return [section]
+        
+        # Add section header to first chunk
+        section_lines = section.split('\n')
+        header_lines = []
+        for line in section_lines:
+            if 'TRANCHE INFORMATION' in line or line.startswith('#'):
+                header_lines.append(line)
+            else:
+                break
+        
+        # Process each tranche
+        for i, match in enumerate(matches):
+            start_pos = match.start()
+            end_pos = matches[i + 1].start() if i + 1 < len(matches) else len(section)
+            
+            tranche_content = section[start_pos:end_pos].strip()
+            
+            # Add header to first tranche chunk for context
+            if i == 0 and header_lines:
+                tranche_content = '\n'.join(header_lines) + '\n' + tranche_content
+                
+            # If tranche is too large, split it further
+            if len(tranche_content) > self.chunk_size:
+                sub_chunks = self._split_preserving_structure(tranche_content)
+                chunks.extend(sub_chunks)
+            else:
+                chunks.append(tranche_content)
+                
+        return chunks
+    
+    def _split_preserving_structure(self, text: str) -> List[str]:
+        """Split text while preserving line structure"""
+        chunks = []
+        lines = text.split('\n')
+        current_chunk = []
+        current_size = 0
+        
+        for line in lines:
+            line_size = len(line) + 1  # +1 for newline
+            
+            # If adding this line would exceed chunk size and we have content
+            if current_size + line_size > self.chunk_size and current_chunk:
+                # Save current chunk
+                chunk_text = '\n'.join(current_chunk)
+                chunks.append(chunk_text)
+                
+                # Start new chunk with overlap (last few lines)
+                overlap_lines = current_chunk[-3:] if len(current_chunk) >= 3 else current_chunk
+                current_chunk = overlap_lines + [line]
+                current_size = sum(len(l) + 1 for l in current_chunk)
+            else:
+                current_chunk.append(line)
+                current_size += line_size
+        
+        # Add final chunk
+        if current_chunk:
+            chunk_text = '\n'.join(current_chunk)
+            chunks.append(chunk_text)
+            
+        return chunks
+
 
 class VectorStore:
     def __init__(self):
-        self.use_local_storage = os.getenv("USE_LOCAL_STORAGE", "false").lower() == "true"
+        self.embeddings = BedrockEmbeddings(
+            model_id="amazon.titan-embed-text-v1",
+            region_name=os.getenv("AWS_REGION", "us-east-1")
+        )
         
-        if not self.use_local_storage:
-            self.embeddings = BedrockEmbeddings(
-                model_id="amazon.titan-embed-text-v1",
-                region_name=os.getenv("AWS_REGION", "us-east-1")
+        # Initialize PGVector with connection string from environment
+        connection_string = os.getenv("PGVECTOR_CONNECTION_STRING")
+        if not connection_string:
+            raise ValueError("[ERROR] PGVECTOR_CONNECTION_STRING environment variable is required")
+        
+        try:
+            self.vector_store = PGVector(
+                connection_string=connection_string,
+                embedding_function=self.embeddings,
+                collection_name="financial_documents"
             )
-            
-            # Initialize PGVector with connection string from environment
-            connection_string = os.getenv("PGVECTOR_CONNECTION_STRING")
-            if connection_string:
+            print("[SUCCESS] Successfully connected to PostgreSQL vector store")
+        except Exception as e:
+            if "already defined" in str(e):
+                # Try to connect to existing store
+                print("⚠️ Vector store tables already exist, connecting to existing store...")
                 try:
-                    self.vector_store = PGVector(
+                    # Use from_existing_index to connect to existing tables
+                    self.vector_store = PGVector.from_existing_index(
+                        embedding=self.embeddings,
                         connection_string=connection_string,
-                        embedding_function=self.embeddings,
                         collection_name="financial_documents"
                     )
-                except Exception as e:
-                    if "already defined" in str(e):
-                        # Try to connect to existing store
-                        print("⚠️ Vector store tables already exist, connecting to existing store...")
-                        try:
-                            # Use from_existing_index to connect to existing tables
-                            self.vector_store = PGVector.from_existing_index(
-                                embedding=self.embeddings,
-                                connection_string=connection_string,
-                                collection_name="financial_documents"
-                            )
-                            print("✅ Successfully connected to existing vector store")
-                        except Exception as e2:
-                            print(f"❌ Failed to connect to existing vector store: {str(e2)}")
-                            print("⚠️ Falling back to local storage")
-                            self.vector_store = None
-                            self.use_local_storage = True
-                    else:
-                        print(f"❌ Error initializing vector store: {str(e)}")
-                        self.vector_store = None
-                        self.use_local_storage = True
+                    print("[SUCCESS] Successfully connected to existing vector store")
+                except Exception as e2:
+                    raise Exception(f"[ERROR] Failed to connect to existing vector store: {str(e2)}")
             else:
-                self.vector_store = None
-                print("Warning: No database connection string found. Using local storage.")
-                self.use_local_storage = True
+                raise Exception(f"[ERROR] Error initializing vector store: {str(e)}")
         
-        if self.use_local_storage:
-            # Use in-memory storage for development
-            self.documents = []
-        
-        self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000,
-            chunk_overlap=200
+        # Smart financial document splitter instead of generic text splitter
+        self.financial_splitter = FinancialDocumentSplitter(
+            chunk_size=1200,
+            chunk_overlap=100
         )
         
     def index_document(self, document: str, metadata: Dict = None) -> None:
-        """Index a document into the vector store"""
-        # Split document into chunks
-        chunks = self.text_splitter.split_text(document)
+        """Index a document into the vector store using smart financial chunking"""
+        print(f"📄 Indexing document with smart financial chunking...")
         
-        if self.use_local_storage:
-            # Store in memory for development
-            for chunk in chunks:
-                self.documents.append({
-                    "content": chunk,
-                    "metadata": metadata or {}
-                })
-        else:
-            # Add chunks to vector store
-            if self.vector_store:
-                self.vector_store.add_texts(
-                    texts=chunks,
-                    metadatas=[metadata] * len(chunks) if metadata else None
-                )
+        # Split document into intelligent chunks
+        chunks = self.financial_splitter.split_text(document)
         
+        print(f"📊 Created {len(chunks)} smart chunks from document")
+        
+        # Debug: Show chunk info for verification
+        for i, chunk in enumerate(chunks[:3]):  # Show first 3 chunks
+            chunk_preview = chunk[:150].replace('\n', ' ')
+            print(f"  Chunk {i+1}: {chunk_preview}... ({len(chunk)} chars)")
+        
+        # Add chunks to PGVector store
+        self.vector_store.add_texts(
+            texts=chunks,
+            metadatas=[metadata] * len(chunks) if metadata else None
+        )
+        
+        print(f"✅ Successfully indexed {len(chunks)} chunks")
+        
+    @trace_financial_operation("document_search")
     def search_documents(self, query: str, k: int = 5) -> List[Dict]:
-        """Search for relevant documents with improved matching"""
-        if self.use_local_storage:
-            print(f"🔍 Local search for: '{query}' in {len(self.documents)} documents")
-            
-            # Enhanced text matching for local storage
-            results = []
-            query_lower = query.lower()
-            query_words = [word.strip() for word in query_lower.split() if len(word.strip()) > 2]
-            
-            for doc in self.documents:
-                content_lower = doc["content"].lower()
-                
-                # Check for exact phrase match (high relevance)
-                if query_lower in content_lower:
-                    relevance = 1.0
-                    results.append({
-                        "content": doc["content"],
-                        "metadata": doc["metadata"],
-                        "relevance_score": relevance
-                    })
-                    continue
-                
-                # Check for individual word matches
-                word_matches = sum(1 for word in query_words if word in content_lower)
-                if word_matches > 0:
-                    relevance = word_matches / len(query_words) if query_words else 0.0
-                    # Boost relevance for more matches
-                    relevance = min(0.95, relevance + (word_matches * 0.1))
-                    
-                    results.append({
-                        "content": doc["content"],
-                        "metadata": doc["metadata"],
-                        "relevance_score": relevance
-                    })
-            
-            # If no matches with words, try partial matches
-            if not results and query_words:
-                for doc in self.documents:
-                    content_lower = doc["content"].lower()
-                    partial_matches = sum(1 for word in query_words 
-                                        for content_word in content_lower.split() 
-                                        if word in content_word or content_word in word)
-                    if partial_matches > 0:
-                        relevance = (partial_matches * 0.3) / len(query_words)
-                        results.append({
-                            "content": doc["content"],
-                            "metadata": doc["metadata"],
-                            "relevance_score": relevance
-                        })
-            
-            # Sort by relevance and return top k results
-            results.sort(key=lambda x: x["relevance_score"], reverse=True)
-            print(f"📊 Found {len(results)} matching documents")
-            return results[:k]
-        else:
-            # Perform similarity search with vector store
-            if self.vector_store:
-                docs = self.vector_store.similarity_search_with_score(
-                    query=query,
-                    k=k
-                )
-                
-                # Format results
-                results = []
-                for doc, score in docs:
-                    results.append({
-                        "content": doc.page_content,
-                        "metadata": doc.metadata,
-                        "relevance_score": float(score)
-                    })
-                
-                return results
-            else:
-                return []
+        """Search for relevant documents using PostgreSQL vector similarity"""
+        start_time = time.time()
+        
+        docs = self.vector_store.similarity_search_with_score(
+            query=query,
+            k=k
+        )
+        
+        # Format results
+        results = []
+        for doc, score in docs:
+            results.append({
+                "content": doc.page_content,
+                "metadata": doc.metadata,
+                "relevance_score": float(score)
+            })
+        
+        # Log search operation to LangSmith
+        langsmith_manager.trace_vector_search(
+            query=query,
+            results=results,
+            metadata={"search_strategy": "vector_similarity", "filters_applied": {"k": k}}
+        )
+        
+        return results
     
     def get_all_documents_info(self) -> List[Dict]:
         """Get information about all stored documents for debugging"""
-        if self.use_local_storage:
-            return [{
-                "filename": doc.get("metadata", {}).get("filename", "unknown"),
-                "content_length": len(doc.get("content", "")),
-                "content_preview": doc.get("content", "")[:200] + "...",
-                "metadata": doc.get("metadata", {})
-            } for doc in self.documents]
-        else:
-            return [{"info": "Using PostgreSQL storage - cannot easily list all documents"}]
-    
-    def _calculate_relevance_score(self, query: str, content: str) -> float:
-        """Calculate a basic relevance score based on keyword matching"""
-        query_words = query.split()
-        matches = sum(1 for word in query_words if word in content)
-        return matches / len(query_words) if query_words else 0.0
+        return [{"info": "Using PostgreSQL storage - cannot easily list all documents"}]

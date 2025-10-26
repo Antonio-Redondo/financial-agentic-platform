@@ -2,12 +2,18 @@
 Document Manager for Financial Forecast AI
 Manages document storage and knowledge base updates (unified with UI uploads)
 """
+
+# Standard library imports
 import os
-from typing import List, Dict, Optional
 from datetime import datetime
+from typing import Dict, List, Optional
+
+# Third-party imports
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
+# Local imports
+from .langsmith_integration import langsmith_manager, trace_financial_operation
 
 class DocumentManager:
     """Manages documents in the knowledge base (same behavior as UI uploads)"""
@@ -20,18 +26,16 @@ class DocumentManager:
             vector_store: VectorStore instance for indexing documents
         """
         self.vector_store = vector_store
-        self.use_local_storage = os.getenv("USE_LOCAL_STORAGE", "false").lower() == "true"
         
         # Database connection string for vector store queries
         self.connection_string = os.getenv("PGVECTOR_CONNECTION_STRING")
+    
     def get_indexed_documents_summary(self) -> Dict:
         """Get summary of all indexed documents from vector store"""
-        if self.use_local_storage:
-            # For local storage, we can't easily count vector store documents
-            # Just return basic info
-            return {
-                "total_documents": 0,
-                "storage_type": "local",
+        # PostgreSQL-only storage
+        return {
+            "total_documents": "unknown (PostgreSQL)",
+            "storage_type": "postgresql",
                 "documents": []
             }
         
@@ -78,6 +82,7 @@ class DocumentManager:
             print(f"❌ Error getting indexed documents summary: {str(e)}")
             return {"total_documents": 0, "storage_type": "error", "documents": []}
     
+    @trace_financial_operation("document_processing_batch")
     def process_documents_batch(self, documents: List[Dict]) -> Dict:
         """
         Process a batch of documents exactly like UI uploads
@@ -114,6 +119,17 @@ class DocumentManager:
                 metadata = doc.get('metadata', {})
                 filename = metadata.get('filename', 'unknown')
                 
+                # Log document chunking to LangSmith
+                if self.vector_store and hasattr(self.vector_store, 'smart_splitter'):
+                    chunks = self.vector_store.smart_splitter.split_text(content)
+                    langsmith_manager.trace_document_chunking(
+                        document_name=filename,
+                        original_size=len(content),
+                        chunks_created=len(chunks),
+                        chunking_strategy="financial_smart_chunking",
+                        metadata={"file_type": metadata.get('content_type', 'unknown')}
+                    )
+                
                 # Create metadata exactly like UI uploads
                 ui_style_metadata = {
                     "filename": filename,
@@ -135,8 +151,10 @@ class DocumentManager:
                     # Index document into vector store (chunks automatically)
                     self.vector_store.index_document(content, ui_style_metadata)
                     
-                    # Get chunks count for reporting
-                    chunks = self.vector_store.text_splitter.split_text(content)
+                    # Get chunks count for reporting using smart chunking
+                    from src.agents.vector_store import FinancialDocumentSplitter
+                    splitter = FinancialDocumentSplitter()
+                    chunks = splitter.split_text(content)
                     chunks_count = len(chunks)
                     
                     results["new_documents"] += 1

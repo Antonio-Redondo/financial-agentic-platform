@@ -2,23 +2,25 @@
 S3 Document Loader for Financial Forecast AI
 Handles automatic loading of documents from S3 bucket on application startup
 """
-import boto3
-import os
-import hashlib
-from typing import List, Dict, Tuple, Optional
-from datetime import datetime
-import mimetypes
-import io
 
-# Document processing imports
-import pypdf
-from docx import Document
-import pandas as pd
+# Standard library imports
+import hashlib
+import io
 import json
-from pptx import Presentation
-from bs4 import BeautifulSoup
-import markdown
+import mimetypes
+import os
 import re
+from datetime import datetime
+from typing import Dict, List, Optional, Tuple
+
+# Third-party imports
+import boto3
+import markdown
+import pandas as pd
+import pypdf
+from bs4 import BeautifulSoup
+from docx import Document
+from pptx import Presentation
 
 
 class S3DocumentLoader:

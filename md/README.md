@@ -14,6 +14,27 @@
 
 ---
 
+## 🆕 Recent Updates (October 2025)
+
+### ✨ Codebase & Architecture
+- **LangSmith tracing/configuration fully removed** for a clean, production-ready codebase.
+- **Multi-agent workflow** implemented using LangGraph for advanced orchestration.
+- **Amazon Bedrock (Titan) LLM** integrated for financial analysis.
+- **S3 integration** for document ingestion and batch processing.
+- **PostgreSQL/pgvector** as the vector store backend (with local fallback).
+- **Streamlit UI**: Modern chat interface, metrics dashboard, and document upload.
+- **Visual documentation**: Added `PYEXPLANATION.md` for a file-by-file, emoji-enhanced codebase map.
+- **All unnecessary files and bytecode caches removed** for a clean workspace.
+
+### 📁 File Structure & Documentation
+- See `src/PYEXPLANATION.md` for a visual, up-to-date mapping of all Python files and their responsibilities.
+- All files in `src/agents/`, `src/ui/`, and `src/` are now essential to the app's operation.
+
+### 🛠️ How to Clean Up
+- All `__pycache__` folders and `.pyc` files are safe to delete and are not required for deployment.
+
+---
+
 ## ✨ Key Features
 
 ```

@@ -2,11 +2,16 @@
 Application Initialization Service
 Handles S3 document loading and knowledge base setup on application startup
 """
+
+# Standard library imports
 import os
 import time
 from typing import Dict, Optional
-from .s3_loader import S3DocumentLoader
+
+# Local imports
 from .document_manager import DocumentManager
+from .s3_loader import S3DocumentLoader
+
 
 
 class AppInitializationService:
@@ -51,7 +56,7 @@ class AppInitializationService:
             "s3_prefix": self.s3_prefix,
             "auto_load_enabled": self.auto_load_enabled,
             "vector_store_available": self.vector_store is not None,
-            "use_local_storage": os.getenv("USE_LOCAL_STORAGE", "false").lower() == "true"
+            "use_postgresql_storage": True
         }
     
     def initialize_knowledge_base(self, show_progress: bool = True) -> Dict:
