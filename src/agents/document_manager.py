@@ -120,8 +120,8 @@ class DocumentManager:
                 filename = metadata.get('filename', 'unknown')
                 
                 # Log document chunking to LangSmith
-                if self.vector_store and hasattr(self.vector_store, 'smart_splitter'):
-                    chunks = self.vector_store.smart_splitter.split_text(content)
+                if self.vector_store and hasattr(self.vector_store, 'financial_splitter'):
+                    chunks = self.vector_store.financial_splitter.split_text(content)
                     langsmith_manager.trace_document_chunking(
                         document_name=filename,
                         original_size=len(content),

@@ -31,6 +31,9 @@ give me the underwriter for deal 2025-002 - Good
 "What are the geographic concentrations in deal 2025-004's collateral pools?"
 "Compare collateral quality metrics between deals 2025-001 and 2025-003"
 "Extract the pool factor and prepayment history for deal 2025-004's underlying assets" - Good 
+"Give me the collateral average life for deal 2025-002 - expected value is 6.81272"
+"What is the specific collateral average life metric for deal 2025-002?"
+"Extract all collateral metrics for deal 2025-002 including average life, WAC, and WAM"
 ```
 
 ### **Tranche Structure Deep Dive**
@@ -44,9 +47,12 @@ give me the underwriter for deal 2025-002 - Good
 ### **Financial Metrics Extraction**
 ```
 "Extract all key financial metrics for deal 2025-003: WAC, WAM, original balance, current balance"
-"What are the yield and duration characteristics for deal 2025-004's Class A tranches?"`- Good
+"What are the yield and duration characteristics for deal 2025-004's Class A tranches?"` - Good
 "Show me the credit enhancement percentages and overcollateralization ratios for deal 2025-001"
 "Extract the pool statistics: loan count, average loan size, and FICO scores for deal 2025-003"
+"Give me the collateral average life for deal 2025-002" - Specific for average life metric
+"What is the exact collateral average life value for deal 2025-002 - should be 6.81272"
+"Extract the weighted average life (WAL) and collateral average life for deal 2025-002"
 ```
 
 ## 🔍 **Risk Assessment Prompts**
@@ -62,7 +68,7 @@ give me the underwriter for deal 2025-001 - Good
 
 ### **Prepayment Risk Evaluation**
 ```
-"Forecast prepayment speeds (CPR/PSA) for deal 2025-003 and explain the methodology"
+"Forecast prepayment speeds (CPR/PSA) for deal 2025-003 and explain the methodology" - Very good
 "What factors in deal 2025-004 could lead to faster or slower prepayments?"
 "Compare the prepayment protection features across deals 2025-001, 2025-003, and 2025-004"
 "Extract historical prepayment data and projections for deal 2025-001's underlying pools"
@@ -175,6 +181,11 @@ Example:
 - Key metrics: WAC, WAM, pool factor, geographic distribution
 - Risk factors: Standard mortgage credit risk, prepayment variability
 
+### **Deal 2025-002:**
+- Focus on: Collateral analysis, average life calculations, pool characteristics
+- Key metrics: Collateral average life (6.81272), WAC, WAM, pool composition
+- Risk factors: Duration risk, prepayment sensitivity, credit quality
+
 ### **Deal 2025-003:**
 - Focus on: Wells Fargo underwriting, specific structural features
 - Key metrics: Enhanced credit support, unique tranche characteristics
@@ -186,6 +197,32 @@ Example:
 - Risk factors: Market conditions impact, interest rate sensitivity
 
 ## 🚀 **Advanced Analysis Prompts**
+
+### **Cross-Deal Comparative Analysis (Enhanced)**
+```
+"Out of all deals provided, give me the one which contains the highest pricing speed"
+"Which deal has the highest pricing speed across all deals?"
+"Compare pricing speeds across all deals and tell me which is highest"
+"Show me the pricing speed for each deal and identify the maximum value"
+"Give me a ranking of all deals by pricing speed from highest to lowest"
+"What is the maximum pricing speed among all deals and which deal(s) have it?"
+"Find the deal with the best pricing speed performance"
+```
+
+**Expected System Behavior for Pricing Speed Queries:**
+- ✅ System should find that deals 2025-001 and 2025-002 both have the highest pricing speed of 275.00000
+- ✅ The system will search across ALL deal documents (2025-001, 2025-002, 2025-003, 2025-004)
+- ✅ Results should show comparative table with exact values for each deal
+- ✅ Clear identification of which deal(s) contain the maximum value
+
+### **Context-Enhanced Queries (Testing Automatic Context Enhancement)**
+```
+"Give me the collateral average life for deal 2025-002" - Tests specific metric extraction
+"What is the exact value of collateral average life for deal 2025-002?" - Tests precision
+"Show me all financial metrics for deal 2025-002 including the collateral average life"
+"Extract the weighted average life and all related duration metrics for deal 2025-002"
+"Provide comprehensive collateral analysis for deal 2025-002 with all available metrics"
+```
 
 ### **Scenario Analysis**
 ```

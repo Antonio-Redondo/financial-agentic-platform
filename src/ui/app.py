@@ -18,7 +18,6 @@ if project_root not in sys.path:
 
 # Local imports
 from src.agents.financial_agent import FinancialAgent
-from src.agents.langsmith_integration import langsmith_manager
 
 load_dotenv()
 
@@ -30,20 +29,14 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Initialize LangSmith integration after page config
-if langsmith_manager.is_enabled:
-    st.success("🔬 LangSmith observability enabled")
-else:
-    st.info("ℹ️ LangSmith observability disabled")
-
-# Custom CSS for modern styling
+# Custom CSS for modern styling with enhanced fonts
 def load_custom_css():
     st.markdown("""
     <style>
-    /* Simple Typography System */
+    /* Enhanced Typography System with Modern Fonts */
     .main {
         padding-top: 2rem;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'SF Pro Display', sans-serif;
     }
     
     /* Header styling with enhanced typography */
@@ -68,19 +61,163 @@ def load_custom_css():
     }
     .main-header h1 {
         margin: 0;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'SF Pro Display', sans-serif;
         font-size: 3rem;
         font-weight: 700;
         text-shadow: 0 2px 8px rgba(0,0,0,0.15);
         color: white;
+        letter-spacing: -0.02em;
     }
     
     .main-header p {
         margin: 1rem 0 0 0;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'SF Pro Text', sans-serif;
         font-size: 1.3rem;
         font-weight: 400;
         opacity: 0.95;
+        letter-spacing: -0.01em;
+    }
+    
+    /* Enhanced Chat Styling with Better Typography and Fonts */
+    .chat-message {
+        padding: 1.8rem;
+        border-radius: 16px;
+        margin-bottom: 1.5rem;
+        box-shadow: 0 3px 12px rgba(0,0,0,0.08);
+        animation: fadeInOut 0.5s ease-out;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'SF Pro Display', sans-serif;
+        line-height: 1.6;
+        letter-spacing: -0.01em;
+    }
+    
+    .user-message {
+        background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+        border-left: 5px solid #3b82f6;
+        font-weight: 500;
+    }
+    
+    .assistant-message {
+        background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+        border-left: 5px solid #10b981;
+        font-weight: 400;
+    }
+    
+    /* Enhanced Typography for Messages */
+    .chat-message p {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'SF Pro Text', sans-serif;
+        font-size: 1.05rem;
+        line-height: 1.7;
+        margin-bottom: 0.9rem;
+        color: #1f2937;
+        font-weight: 400;
+        letter-spacing: -0.005em;
+    }
+    
+    .chat-message h1, .chat-message h2, .chat-message h3 {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'SF Pro Display', sans-serif;
+        font-weight: 600;
+        margin-top: 1.5rem;
+        margin-bottom: 0.8rem;
+        letter-spacing: -0.02em;
+    }
+    
+    .chat-message h1 { font-size: 1.9rem; color: #0f172a; }
+    .chat-message h2 { font-size: 1.6rem; color: #1e293b; }
+    .chat-message h3 { font-size: 1.4rem; color: #334155; }
+    
+    .chat-message code {
+        font-family: 'JetBrains Mono', 'SF Mono', 'Monaco', 'Consolas', 'Fira Code', monospace;
+        background: rgba(99, 102, 241, 0.1);
+        padding: 0.25rem 0.5rem;
+        border-radius: 6px;
+        font-size: 0.9rem;
+        font-weight: 500;
+        letter-spacing: 0;
+    }
+    
+    .chat-message pre {
+        font-family: 'JetBrains Mono', 'SF Mono', 'Monaco', 'Consolas', 'Fira Code', monospace;
+        background: #f8fafc;
+        padding: 1.2rem;
+        border-radius: 10px;
+        border-left: 4px solid #e2e8f0;
+        overflow-x: auto;
+        font-size: 0.9rem;
+        line-height: 1.6;
+    }
+    
+    /* Enhanced Chat Input Styling with Better Fonts */
+    .stChatInput > div > div > div > div {
+        min-height: 85px !important;
+        height: 85px !important;
+        background: transparent !important;
+        background-color: transparent !important;
+    }
+    
+    .stChatInput textarea {
+        min-height: 65px !important;
+        height: 65px !important;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'SF Pro Text', sans-serif !important;
+        font-size: 16px !important;
+        font-weight: 400 !important;
+        padding: 18px 22px !important;
+        line-height: 1.6 !important;
+        resize: vertical !important;
+        background: transparent !important;
+        background-color: transparent !important;
+        color: #1f2937 !important;
+        transition: all 0.3s ease !important;
+        letter-spacing: -0.005em !important;
+    }
+    
+    .stChatInput > div {
+        background: transparent !important;
+        background-color: transparent !important;
+        border: 2px solid #e2e8f0 !important;
+        border-radius: 14px !important;
+        box-shadow: 0 2px 12px rgba(0,0,0,0.08) !important;
+        margin: 8px 0 !important;
+    }
+    
+    .stChatInput > div > div {
+        background: transparent !important;
+        background-color: transparent !important;
+    }
+    
+    .stChatInput > div > div > div {
+        background: transparent !important;
+        background-color: transparent !important;
+    }
+    
+    .stChatInput > div > div > div > div {
+        background: transparent !important;
+        background-color: transparent !important;
+    }
+    
+    .stChatInput > div:focus-within {
+        border-color: #3b82f6 !important;
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1) !important;
+    }
+    
+    /* Enhanced Typography and Font Effects for Chat Input */
+    .stChatInput textarea::placeholder {
+        color: #9ca3af !important;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'SF Pro Text', sans-serif !important;
+        font-size: 15px !important;
+        font-weight: 400 !important;
+        opacity: 0.75 !important;
+        transition: all 0.3s ease !important;
+        letter-spacing: -0.005em !important;
+    }
+    
+    .stChatInput textarea:focus::placeholder {
+        opacity: 0.4 !important;
+        color: #6b7280 !important;
+    }
+    
+    .stChatInput textarea:focus {
+        font-weight: 500 !important;
+        color: #0f172a !important;
     }
     
     /* Metrics cards */
@@ -91,24 +228,6 @@ def load_custom_css():
         box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         border-left: 4px solid #3b82f6;
         margin-bottom: 1rem;
-    }
-    
-    /* Chat message styling */
-    .chat-message {
-        padding: 1rem;
-        border-radius: 10px;
-        margin-bottom: 1rem;
-        border-left: 4px solid #3b82f6;
-    }
-    
-    .user-message {
-        background-color: #eff6ff;
-        border-left-color: #3b82f6;
-    }
-    
-    .assistant-message {
-        background-color: #f0fdf4;
-        border-left-color: #10b981;
     }
     
     /* Sidebar styling */
@@ -126,31 +245,6 @@ def load_custom_css():
         margin-bottom: 1rem;
     }
     
-    /* Analysis results styling */
-    .analysis-section {
-        background: white;
-        padding: 1.5rem;
-        border-radius: 10px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        margin-bottom: 1rem;
-    }
-    
-    /* Status indicators */
-    .status-success {
-        color: #10b981;
-        font-weight: 600;
-    }
-    
-    .status-warning {
-        color: #f59e0b;
-        font-weight: 600;
-    }
-    
-    .status-error {
-        color: #ef4444;
-        font-weight: 600;
-    }
-    
     /* Button styling */
     .stButton > button {
         width: 100%;
@@ -161,6 +255,7 @@ def load_custom_css():
         font-weight: 600;
         padding: 0.75rem 1.5rem;
         transition: all 0.3s ease;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     }
     
     .stButton > button:hover {
@@ -276,12 +371,13 @@ def load_custom_css():
     }
     
     .analyzing-text {
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'SF Pro Text', sans-serif;
         font-size: 1.1rem;
         font-weight: 600;
         margin: 0.5rem 0;
         animation: textGlow 2s ease-in-out infinite alternate;
         text-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        letter-spacing: -0.01em;
     }
     
     @keyframes textGlow {
@@ -294,12 +390,13 @@ def load_custom_css():
     }
     
     .analyzing-subtext {
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'SF Pro Text', sans-serif;
         font-size: 0.9rem;
         font-weight: 400;
         opacity: 0.9;
         margin-top: 0.5rem;
         animation: subtlePulse 3s ease-in-out infinite;
+        letter-spacing: -0.005em;
     }
     
     @keyframes subtlePulse {
@@ -357,27 +454,7 @@ def load_custom_css():
         100% { content: '●●●●●'; }
     }
     
-    /* Search Processing Background Effect */
-    .search-processing-bg {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: linear-gradient(45deg, rgba(59,130,246,0.05), rgba(139,92,246,0.05), rgba(236,72,153,0.05));
-        background-size: 400% 400%;
-        animation: searchBgShift 4s ease infinite;
-        pointer-events: none;
-        z-index: -1;
-    }
-    
-    @keyframes searchBgShift {
-        0% { background-position: 0% 50%; }
-        50% { background-position: 100% 50%; }
-        100% { background-position: 0% 50%; }
-    }
-    
-    /* Enhanced Success Animation */
+    /* Success Animation */
     .success-animation {
         background: linear-gradient(135deg, #10b981 0%, #059669 100%);
         color: white;
@@ -413,220 +490,10 @@ def load_custom_css():
         100% { left: 100%; }
     }
     
-    /* Typing Effect for Search Results */
-    .typing-effect {
-        overflow: hidden;
-        border-right: 2px solid #3b82f6;
-        animation: typewriter 2s steps(40) 1s both, blinkCursor 1s infinite;
-        white-space: nowrap;
-    }
-    
-    @keyframes typewriter {
-        from { width: 0; }
-        to { width: 100%; }
-    }
-    
-    @keyframes blinkCursor {
-        50% { border-color: transparent; }
-    }
-        50% { content: '..'; }
-        75% { content: '...'; }
-        100% { content: ''; }
-    }
-    
-    /* Success Animation */
-    .success-animation {
-        animation: fadeInOut 0.8s ease-out;
-        background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-        color: white;
-        padding: 1rem;
-        border-radius: 10px;
-        text-align: center;
-        margin: 1rem 0;
-    }
-    
-    /* Enhanced Chat Styling with Simple Typography */
-    .chat-message {
-        padding: 1.8rem;
-        border-radius: 16px;
-        margin-bottom: 1.5rem;
-        box-shadow: 0 3px 12px rgba(0,0,0,0.08);
-        animation: fadeInOut 0.5s ease-out;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-        line-height: 1.6;
-    }
-    
-    .user-message {
-        background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
-        border-left: 5px solid #3b82f6;
-        font-weight: 500;
-    }
-    
-    .assistant-message {
-        background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
-        border-left: 5px solid #10b981;
-        font-weight: 400;
-    }
-    
-    /* Simple Typography for Messages */
-    .chat-message p {
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-        font-size: 1rem;
-        line-height: 1.6;
-        margin-bottom: 0.8rem;
-        color: #374151;
-    }
-    
-    .chat-message h1, .chat-message h2, .chat-message h3 {
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-        font-weight: 600;
-        margin-top: 1.5rem;
-        margin-bottom: 0.8rem;
-    }
-    
-    .chat-message h1 { font-size: 1.8rem; color: #1f2937; }
-    .chat-message h2 { font-size: 1.5rem; color: #374151; }
-    .chat-message h3 { font-size: 1.3rem; color: #4b5563; }
-    
-    .chat-message code {
-        font-family: 'JetBrains Mono', 'SF Mono', 'Monaco', 'Consolas', monospace;
-        background: rgba(99, 102, 241, 0.1);
-        padding: 0.2rem 0.4rem;
-        border-radius: 4px;
-        font-size: 0.9rem;
-        font-weight: 500;
-        letter-spacing: 0;
-    }
-    
-    .chat-message pre {
-        font-family: 'JetBrains Mono', 'SF Mono', 'Monaco', 'Consolas', monospace;
-        background: #f8fafc;
-        padding: 1rem;
-        border-radius: 8px;
-        border-left: 4px solid #e2e8f0;
-        overflow-x: auto;
-        font-size: 0.9rem;
-        line-height: 1.5;
-    }
-    
-    /* Typing Animation */
-    .typing-indicator {
-        display: inline-block;
-        background: #e5e7eb;
-        padding: 10px 15px;
-        border-radius: 15px;
-        margin: 10px 0;
-    }
-    
-    .typing-indicator::after {
-        content: '';
-        display: inline-block;
-        width: 3px;
-        height: 3px;
-        border-radius: 50%;
-        background: #6b7280;
-        animation: typing 1.4s infinite;
-        margin-left: 5px;
-    }
-    
-    @keyframes typing {
-        0% { box-shadow: 10px 0 #6b7280, 20px 0 #6b7280; }
-        25% { box-shadow: 10px 0 #3b82f6, 20px 0 #6b7280; }
-        50% { box-shadow: 10px 0 #6b7280, 20px 0 #3b82f6; }
-        75% { box-shadow: 10px 0 #6b7280, 20px 0 #6b7280; }
-        100% { box-shadow: 10px 0 #6b7280, 20px 0 #6b7280; }
-    }
-    
     /* Hide Streamlit branding */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
-    
-    /* Enhanced Chat Input Styling with Typography */
-    .stChatInput > div > div > div > div {
-        min-height: 85px !important;
-        height: 85px !important;
-        background: transparent !important;
-        background-color: transparent !important;
-    }
-    
-    .stChatInput textarea {
-        min-height: 65px !important;
-        height: 65px !important;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
-        font-size: 16px !important;
-        font-weight: 400 !important;
-        padding: 16px 20px !important;
-        line-height: 1.5 !important;
-        resize: vertical !important;
-        background: transparent !important;
-        background-color: transparent !important;
-        color: #374151 !important;
-        transition: all 0.3s ease !important;
-    }
-    
-    .stChatInput > div {
-        background: transparent !important;
-        background-color: transparent !important;
-        border: 2px solid #e2e8f0 !important;
-        border-radius: 12px !important;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.1) !important;
-        margin: 8px 0 !important;
-    }
-    
-    .stChatInput > div > div {
-        background: transparent !important;
-        background-color: transparent !important;
-    }
-    
-    .stChatInput > div > div > div {
-        background: transparent !important;
-        background-color: transparent !important;
-    }
-    
-    .stChatInput > div > div > div > div {
-        background: transparent !important;
-        background-color: transparent !important;
-    }
-    
-    .stChatInput > div:focus-within {
-        border-color: #3b82f6 !important;
-        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1) !important;
-    }
-    
-    /* Simple Typography and Font Effects */
-    .stChatInput textarea::placeholder {
-        color: #9ca3af !important;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
-        font-size: 15px !important;
-        font-weight: 400 !important;
-        opacity: 0.75 !important;
-        transition: all 0.3s ease !important;
-    }
-    
-    .stChatInput textarea:focus::placeholder {
-        opacity: 0.4 !important;
-        color: #6b7280 !important;
-    }
-    
-    .stChatInput textarea:focus {
-        font-weight: 500 !important;
-        color: #1f2937 !important;
-    }
-    
-    /* Search Result Highlighting */
-    .search-highlight {
-        background: linear-gradient(120deg, rgba(59,130,246,0.1) 0%, rgba(139,92,246,0.1) 100%);
-        padding: 2px 4px;
-        border-radius: 4px;
-        font-weight: 600;
-        animation: highlightPulse 2s ease-in-out infinite;
-    }
-    
-    @keyframes highlightPulse {
-        0%, 100% { background: linear-gradient(120deg, rgba(59,130,246,0.1) 0%, rgba(139,92,246,0.1) 100%); }
-        50% { background: linear-gradient(120deg, rgba(59,130,246,0.2) 0%, rgba(139,92,246,0.2) 100%); }
-    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -648,7 +515,7 @@ def create_metrics_dashboard():
     
     with col1:
         st.metric(
-            label=" Messages",
+            label="💬 Messages",
             value=len(st.session_state.get("messages", [])),
             delta=f"+{len(st.session_state.get('messages', [])) // 2} conversations" if len(st.session_state.get("messages", [])) > 0 else None
         )
@@ -736,18 +603,6 @@ def create_sidebar():
                         stats = st.session_state.agent.get_document_stats()
                         st.success(f"📊 Document Stats: {stats['total_chunks']} chunks from {stats['unique_documents']} documents in {stats['storage_type']} storage")
                         
-                        # Show all documents info for debugging
-                        if hasattr(st.session_state.agent.vector_store, 'get_all_documents_info'):
-                            all_docs = st.session_state.agent.vector_store.get_all_documents_info()
-                            if all_docs:
-                                with st.expander("📋 All Stored Documents (Debug Info)"):
-                                    for i, doc_info in enumerate(all_docs, 1):
-                                        st.text(f"Document {i}:")
-                                        st.text(f"  Filename: {doc_info.get('filename', 'unknown')}")
-                                        st.text(f"  Content Length: {doc_info.get('content_length', 0)} chars")
-                                        st.text(f"  Preview: {doc_info.get('content_preview', 'No preview')}")
-                                        st.text("---")
-                        
                         # Test search with user input
                         test_query = st.text_input("🔍 Test search query:", value="financial", help="Enter a word to search for in your documents")
                         if st.button("Search Documents"):
@@ -800,7 +655,7 @@ def create_sidebar():
             if results.get("documents_processed", 0) > 0:
                 st.success(f"✅ S3 Auto-load: {results['documents_processed']} documents indexed")
                 
-                with st.expander("� View S3 Document Details"):
+                with st.expander("📄 View S3 Document Details"):
                     st.write(f"**Processing Time:** {results.get('processing_time', 0):.2f}s")
                     st.write(f"**Total Documents Found:** {results.get('total_documents', 0)}")
                     st.write(f"**New Documents Indexed:** {results['documents_processed']}")
@@ -835,57 +690,6 @@ def create_sidebar():
             st.code("S3_AUTO_LOAD_ENABLED=true")
         else:
             st.warning(f"⚠️ Unknown S3 status: {s3_status}")
-        
-        # LangSmith Analytics Section
-        if langsmith_manager.is_enabled:
-            st.markdown("---")
-            st.markdown("### 🔬 LangSmith Analytics")
-            
-            # Get project analytics
-            try:
-                analytics = langsmith_manager.get_project_analytics(days_back=7)
-                
-                if analytics and analytics.get("status") == "full_access":
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        st.metric("Total Runs", analytics.get("total_runs", 0))
-                        st.metric("Success Rate", f"{(analytics.get('successful_runs', 0) / max(analytics.get('total_runs', 1), 1) * 100):.1f}%")
-                    
-                    with col2:
-                        st.metric("Error Runs", analytics.get("error_runs", 0))
-                        avg_latency = analytics.get("avg_latency", 0)
-                        st.metric("Avg Latency", f"{avg_latency:.2f}s" if avg_latency else "N/A")
-                    
-                    st.markdown(f"**Project:** {analytics.get('project_name', 'Unknown')}")
-                    st.markdown(f"**Last 7 days**")
-                    
-                    # Link to LangSmith dashboard
-                    langsmith_url = f"https://smith.langchain.com/o/{os.getenv('LANGCHAIN_PROJECT', 'financial-forecast-ai-app')}"
-                    st.markdown(f"🔗 [View Full Dashboard]({langsmith_url})")
-                    
-                elif analytics and analytics.get("status") in ["limited_access", "access_denied"]:
-                    st.info("📊 LangSmith Analytics")
-                    st.markdown(f"**Status:** {analytics.get('message', 'Limited access')}")
-                    st.markdown(f"**Local Tracing:** {analytics.get('local_tracing', 'enabled')}")
-                    st.markdown("**Features Available:**")
-                    st.markdown("- ✅ Query and response tracking")
-                    st.markdown("- ✅ Performance monitoring") 
-                    st.markdown("- ✅ Error logging")
-                    st.markdown("- ⚠️ Dashboard analytics (limited)")
-                    
-                    # Link to LangSmith dashboard
-                    langsmith_url = f"https://smith.langchain.com/o/{os.getenv('LANGCHAIN_PROJECT', 'financial-forecast-ai-app')}"
-                    st.markdown(f"🔗 [View LangSmith Dashboard]({langsmith_url})")
-                else:
-                    st.info("📊 No analytics data available yet")
-                    
-            except Exception as e:
-                st.warning(f"⚠️ LangSmith analytics unavailable: {str(e)}")
-        else:
-            st.markdown("---")
-            st.markdown("### 🔬 LangSmith Integration")
-            st.info("💡 Enable LangSmith tracing by setting LANGCHAIN_TRACING_V2=true in your .env file")
         
         st.markdown("---")
 
@@ -1077,7 +881,7 @@ def process_documents(uploaded_files):
                 "processed_at": datetime.now(),
                 "content": content[:500] + "..." if len(content) > 500 else content,
                 "indexed": vector_store is not None,
-                "chunks_created": len(vector_store.smart_splitter.split_text(content)) if vector_store else 0
+                "chunks_created": len(vector_store.financial_splitter.split_text(content)) if vector_store else 0
             })
             
             # Update progress
@@ -1105,7 +909,7 @@ def create_chat_interface():
         st.markdown("#### ✍️ Ask Your Question")
         
         # Chat input at the top - always visible
-        prompt = st.chat_input("", key="chat_input_top")
+        prompt = st.chat_input("Type your financial question here...", key="chat_input_top")
     
     # Separator
     st.markdown("---")
@@ -1120,7 +924,6 @@ def create_chat_interface():
         
         # Show enhanced analyzing status with animations and background effect
         analysis_container.markdown("""
-        <div class="search-processing-bg"></div>
         <div class="analyzing-container">
             <div class="brain-icon">🧠</div>
             <div class="analyzing-text">Analyzing your query<span class="progress-dots"></span></div>
@@ -1170,43 +973,6 @@ def create_chat_interface():
 
             # Add assistant message to chat history
             st.session_state.messages.append({"role": "assistant", "content": formatted_response})
-            
-            # Add LangSmith feedback collection
-            if langsmith_manager.is_enabled:
-                with st.expander("📝 Rate this response (helps improve the AI)", expanded=False):
-                    feedback_col1, feedback_col2 = st.columns([3, 1])
-                    
-                    with feedback_col1:
-                        feedback_score = st.select_slider(
-                            "How helpful was this response?",
-                            options=[1, 2, 3, 4, 5],
-                            value=3,
-                            format_func=lambda x: ["⭐", "⭐⭐", "⭐⭐⭐", "⭐⭐⭐⭐", "⭐⭐⭐⭐⭐"][x-1],
-                            key=f"feedback_score_{len(st.session_state.messages)}"
-                        )
-                        
-                        feedback_text = st.text_area(
-                            "Additional feedback (optional):",
-                            placeholder="What could be improved? What was particularly helpful?",
-                            key=f"feedback_text_{len(st.session_state.messages)}",
-                            height=80
-                        )
-                    
-                    with feedback_col2:
-                        if st.button("Submit Feedback", key=f"feedback_submit_{len(st.session_state.messages)}"):
-                            session_id = st.session_state.get('session_id', str(time.time()))
-                            success = langsmith_manager.log_user_feedback(
-                                session_id=session_id,
-                                query=prompt,
-                                response=response.get("output", ""),
-                                feedback_score=feedback_score,
-                                feedback_text=feedback_text if feedback_text.strip() else None
-                            )
-                            
-                            if success:
-                                st.success("🙏 Thank you for your feedback!")
-                            else:
-                                st.warning("⚠️ Feedback not logged (LangSmith unavailable)")
 
             # Show additional visualizations if data is present
             if "data" in response and response["data"]:
@@ -1265,11 +1031,10 @@ def create_chat_interface():
         st.markdown("""
         <div style="text-align: center; padding: 2rem; background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); border-radius: 15px; margin: 1rem 0;">
             <div style="font-size: 3rem; margin-bottom: 1rem; animation: bounce 2s infinite;">👋</div>
-            <div style="font-size: 1.5rem; font-weight: bold; color: #1e293b; margin-bottom: 0.5rem;">Welcome to AI Financial Analyst!</div>
-            <div style="color: #64748b; font-size: 1.1rem;">Ask me anything about financial analysis, prepayment forecasting, or risk assessment.</div>
+            <div style="font-size: 1.5rem; font-weight: bold; color: #1e293b; margin-bottom: 0.5rem; font-family: 'Inter', sans-serif;">Welcome to AI Financial Analyst!</div>
+            <div style="color: #64748b; font-size: 1.1rem; font-family: 'Inter', sans-serif;">Ask me anything about financial analysis, prepayment forecasting, or risk assessment.</div>
         </div>
         """, unsafe_allow_html=True)
-
 
 def create_data_visualization(data):
     """Create visualizations for analysis data using Streamlit built-in charts"""
@@ -1401,24 +1166,10 @@ def start_s3_background_processing():
         thread.start()
         print("🔄 S3 background processing thread started...")
 
-def initialize_s3_background():
-    """Legacy function - S3 no longer starts at initialization"""
-    pass
-
-def process_s3_if_queued():
-    """Legacy function - replaced by fragment"""
-    pass
-
-def start_s3_after_ui_ready():
-    """S3 processing is now manual only - no automatic startup processing"""
-    pass
-
 def main():
     """Main application function"""
     load_custom_css()
     initialize_session_state()
-    
-    # App starts immediately - NO S3 processing at startup
     
     # Create header - UI shows immediately
     create_header()
@@ -1435,13 +1186,10 @@ def main():
     with col2:
         create_sidebar()
     
-    # Only start S3 processing after UI is fully rendered
-    start_s3_after_ui_ready()
-    
     # Footer
     st.markdown("---")
     st.markdown("""
-    <div style="text-align: center; color: #6b7280; padding: 1rem;">
+    <div style="text-align: center; color: #6b7280; padding: 1rem; font-family: 'Inter', sans-serif;">
         <small>🏦 Financial Forecast AI | Built with Streamlit</small>
     </div>
     """, unsafe_allow_html=True)
