@@ -265,7 +265,7 @@ class FinancialWorkflow:
             response += f"\n### 📚 Source Documents ({len(context_docs)} documents analyzed):\n"
             for i, doc in enumerate(context_docs[:5], 1):  # Show top 5
                 filename = doc.get('metadata', {}).get('filename', 'Unknown')
-                relevance = doc.get('relevance_score', 0.0)
+                relevance = doc.get('similarity_score', 0.0)
                 response += f"{i}. **{filename}** (Relevance: {relevance:.1%})\n"
         
         return response

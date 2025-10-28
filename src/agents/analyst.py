@@ -3,6 +3,10 @@ import os
 import time
 from typing import Dict
 
+# Import LangSmith tracing
+# Local imports
+from .langsmith_integration import langsmith_manager, trace_financial_operation, trace_bedrock_call, with_langsmith_callbacks
+
 # Third-party imports will be imported inline where needed to avoid unnecessary loading
 
 class FinancialAnalyst:
@@ -17,7 +21,8 @@ class FinancialAnalyst:
             from langchain_community.chat_models import BedrockChat
             
            
-            self.llm = BedrockChat(
+            self.llm = with_langsmith_callbacks(
+                BedrockChat,
                 model_id="amazon.titan-tg1-large",
                 model_kwargs={
                      "temperature": 0.8,     # Controls randomness
@@ -31,8 +36,11 @@ class FinancialAnalyst:
             print("Please ensure your AWS credentials have access to Amazon Titan models in Bedrock")
             self.llm = None
         
+    @trace_financial_operation("financial_analysis")
     def analyze(self, text: str) -> Dict:
         """Advanced financial analysis using Amazon Titan"""
+        
+        start_time = time.time()
         
         if self.llm is None:
             return {
@@ -86,14 +94,36 @@ IMPORTANT: Provide detailed, substantive analysis using your extensive financial
             # Use the chat model interface with proper message format
             from langchain_core.messages import HumanMessage
             message = HumanMessage(content=prompt)
-            response = self.llm.invoke([message])
+            
+            # Trace the LLM call with Bedrock context
+            llm_start_time = time.time()
+            with trace_bedrock_call("amazon.titan-tg1-large", "financial_analysis"):
+                response = self.llm.invoke([message])
+            llm_latency = (time.time() - llm_start_time) * 1000
             
             # Extract content from the response
             response_content = response.content if hasattr(response, 'content') else str(response)
             
+            # Log the LLM response to LangSmith
+            langsmith_manager.trace_llm_response(
+                prompt=prompt,
+                response=response_content,
+                model_name="amazon.titan-tg1-large",
+                latency_ms=llm_latency,
+                metadata={
+                    "component": "financial_analyst",
+                    "operation": "financial_analysis",
+                    "input_length": len(text),
+                    "output_length": len(response_content)
+                }
+            )
+            
+            total_latency = (time.time() - start_time) * 1000
+            
             return {
                 "analysis": response_content,
-                "confidence": 1.0  # Using real model - no synthetic confidence scoring
+                "confidence": 1.0,  # Using real model - no synthetic confidence scoring
+                "latency_ms": total_latency
             }
             
         except Exception as e:

@@ -10,7 +10,7 @@ from langchain_community.vectorstores.pgvector import PGVector
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 # Local imports
-from .langsmith_integration import langsmith_manager, trace_financial_operation
+from .langsmith_integration import langsmith_manager, trace_financial_operation, trace_bedrock_call, with_langsmith_callbacks
 
 
 class FinancialDocumentSplitter:
@@ -186,10 +186,21 @@ class FinancialDocumentSplitter:
 
 class VectorStore:
     def __init__(self):
-        self.embeddings = BedrockEmbeddings(
-            model_id="amazon.titan-embed-text-v1",
-            region_name=os.getenv("AWS_REGION", "us-east-1")
-        )
+        # Use amazon.titan-embed-text-v2:0 (Titan Text Embeddings V2)
+        # This is the latest v2 embedding model from Amazon
+        try:
+            self.embeddings = with_langsmith_callbacks(
+                BedrockEmbeddings,
+                model_id="amazon.titan-embed-text-v2:0",
+                region_name=os.getenv("AWS_REGION", "us-east-1")
+            )
+            # Test the dimensions with Bedrock tracing
+            with trace_bedrock_call("amazon.titan-embed-text-v2:0", "embedding_test"):
+                test_embed = self.embeddings.embed_query("test")
+            print(f"[INFO] Embedding dimensions: {len(test_embed)}")
+        except Exception as e:
+            print(f"[ERROR] Embedding initialization failed: {e}")
+            raise
         
         # Initialize PGVector with connection string from environment
         connection_string = os.getenv("PGVECTOR_CONNECTION_STRING")
@@ -206,7 +217,7 @@ class VectorStore:
         except Exception as e:
             if "already defined" in str(e):
                 # Try to connect to existing store
-                print("⚠️ Vector store tables already exist, connecting to existing store...")
+                print("[WARNING] Vector store tables already exist, connecting to existing store...")
                 try:
                     # Use from_existing_index to connect to existing tables
                     self.vector_store = PGVector.from_existing_index(
@@ -226,14 +237,18 @@ class VectorStore:
             chunk_overlap=100
         )
         
+    @trace_financial_operation("document_indexing")
     def index_document(self, document: str, metadata: Dict = None) -> None:
         """Index a document into the vector store using smart financial chunking"""
-        print(f"📄 Indexing document with smart financial chunking...")
+        start_time = time.time()
+        print(f"[INFO] Indexing document with smart financial chunking...")
         
         # Split document into intelligent chunks
+        chunking_start_time = time.time()
         chunks = self.financial_splitter.split_text(document)
+        chunking_latency = (time.time() - chunking_start_time) * 1000
         
-        print(f"📊 Created {len(chunks)} smart chunks from document")
+        print(f"[INFO] Created {len(chunks)} smart chunks from document")
         
         # Debug: Show chunk info for verification
         for i, chunk in enumerate(chunks[:3]):  # Show first 3 chunks
@@ -241,37 +256,78 @@ class VectorStore:
             print(f"  Chunk {i+1}: {chunk_preview}... ({len(chunk)} chars)")
         
         # Add chunks to PGVector store
+        indexing_start_time = time.time()
         self.vector_store.add_texts(
             texts=chunks,
             metadatas=[metadata] * len(chunks) if metadata else None
         )
+        indexing_latency = (time.time() - indexing_start_time) * 1000
         
-        print(f"✅ Successfully indexed {len(chunks)} chunks")
+        total_latency = (time.time() - start_time) * 1000
+        
+        # Log document processing to LangSmith
+        langsmith_manager.trace_document_processing(
+            document_path=metadata.get("source", "unknown") if metadata else "unknown",
+            chunks_created=len(chunks),
+            metadata={
+                "component": "vector_store",
+                "document_length": len(document),
+                "avg_chunk_size": sum(len(chunk) for chunk in chunks) / len(chunks) if chunks else 0,
+                "chunking_latency_ms": chunking_latency,
+                "indexing_latency_ms": indexing_latency,
+                "total_latency_ms": total_latency,
+                "embedding_model": "amazon.titan-embed-text-v2:0"
+            }
+        )
+        
+        print(f"[SUCCESS] Successfully indexed {len(chunks)} chunks")
         
     @trace_financial_operation("document_search")
     def search_documents(self, query: str, k: int = 5) -> List[Dict]:
         """Search for relevant documents using PostgreSQL vector similarity"""
         start_time = time.time()
         
-        docs = self.vector_store.similarity_search_with_score(
-            query=query,
-            k=k
-        )
+        # Trace the embedding call with Bedrock context
+        embedding_start_time = time.time()
+        with trace_bedrock_call("amazon.titan-embed-text-v2:0", "document_search"):
+            docs = self.vector_store.similarity_search_with_score(
+                query=query,
+                k=k
+            )
+        embedding_latency = (time.time() - embedding_start_time) * 1000
         
-        # Format results
+        # Format results with enhanced tracing
         results = []
         for doc, score in docs:
-            results.append({
+            result = {
                 "content": doc.page_content,
                 "metadata": doc.metadata,
-                "relevance_score": float(score)
-            })
+                "similarity_score": score
+            }
+            results.append(result)
+            
+            # Log individual result details for debugging
+            print(f"[DEBUG] Search result - Score: {score:.6f}, Content length: {len(doc.page_content)}")
         
-        # Log search operation to LangSmith
+        search_latency = (time.time() - start_time) * 1000
+        
+        # Log vector search to LangSmith with enhanced debugging
         langsmith_manager.trace_vector_search(
             query=query,
-            results=results,
-            metadata={"search_strategy": "vector_similarity", "filters_applied": {"k": k}}
+            results=[{"doc_id": i, "score": r["similarity_score"]} for i, r in enumerate(results)],
+            metadata={
+                "component": "vector_store",
+                "embedding_model": "amazon.titan-embed-text-v2:0",
+                "k": k,
+                "total_results": len(results),
+                "avg_similarity_score": sum(r["similarity_score"] for r in results) / len(results) if results else 0,
+                "min_similarity_score": min(r["similarity_score"] for r in results) if results else 0,
+                "max_similarity_score": max(r["similarity_score"] for r in results) if results else 0,
+                "embedding_latency_ms": embedding_latency,
+                "total_latency_ms": search_latency,
+                "query_length": len(query),
+                "best_match_content_preview": results[0]["content"][:200] if results else "No results"
+            }
         )
         
         return results

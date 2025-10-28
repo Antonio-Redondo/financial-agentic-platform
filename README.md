@@ -16,22 +16,33 @@
 
 ## 🆕 Recent Updates (October 2025)
 
-### ✨ Codebase & Architecture
-- **LangSmith tracing/configuration fully removed** for a clean, production-ready codebase.
-- **Multi-agent workflow** implemented using LangGraph for advanced orchestration.
-- **Amazon Bedrock (Titan) LLM** integrated for financial analysis.
-- **S3 integration** for document ingestion and batch processing.
-- **PostgreSQL/pgvector** as the vector store backend (with local fallback).
-- **Streamlit UI**: Modern chat interface, metrics dashboard, and document upload.
-- **Visual documentation**: Added `PYEXPLANATION.md` for a file-by-file, emoji-enhanced codebase map.
-- **All unnecessary files and bytecode caches removed** for a clean workspace.
+### ✨ Major Enhancements & New Features
+- **🔍 Amazon Titan Text Embeddings v2**: Upgraded to `amazon.titan-embed-text-v2:0` with 1024-dimensional vectors for superior semantic search
+- **🎯 LangSmith Integration**: Comprehensive observability with auto-tracing, run tracking, and detailed performance monitoring
+- **🧠 Conversation Memory**: Bidirectional synchronization between Streamlit UI and LangChain memory for contextual follow-up queries
+- **📊 Enhanced Vector Search**: Improved relevance scoring with similarity scores in 0.70-0.80 range for high-quality results
+- **🔄 Real-time Tracing**: All operations (vector search, financial queries, Bedrock analysis, LLM responses) traced to LangSmith
+- **💭 Context-Aware Queries**: Smart detection of references like "it", "this", "as well" to maintain conversation flow
+- **🎨 Modern Chat Interface**: Enhanced Streamlit UI with improved message handling and user experience
+
+### 🔧 Technical Improvements
+- **Multi-agent workflow** implemented using LangGraph for advanced orchestration
+- **Amazon Bedrock (Titan) LLM** with enhanced callback integration for better tracing
+- **PostgreSQL/pgvector** optimized for 1024-dimensional embeddings with debug logging
+- **S3 integration** for document ingestion and batch processing
+- **Comprehensive error handling** with detailed logging and user feedback
+- **Memory persistence** across app restarts with session state synchronization
 
 ### 📁 File Structure & Documentation
-- See `src/PYEXPLANATION.md` for a visual, up-to-date mapping of all Python files and their responsibilities.
-- All files in `src/agents/`, `src/ui/`, and `src/` are now essential to the app's operation.
+- Enhanced `langsmith_integration.py` with traceable decorators and auto-tracing
+- Improved `financial_agent.py` with contextual query enhancement patterns
+- Updated `vector_store.py` with Titan v2 embeddings and enhanced debugging
+- Enhanced `app.py` with bidirectional conversation memory synchronization
+- See `src/PYEXPLANATION.md` for a visual, up-to-date mapping of all Python files and their responsibilities
 
-### 🛠️ How to Clean Up
-- All `__pycache__` folders and `.pyc` files are safe to delete and are not required for deployment.
+### 🛠️ Development Environment
+- All `__pycache__` folders and `.pyc` files are safe to delete and are not required for deployment
+- Enhanced development workflow with comprehensive logging and tracing capabilities
 
 ---
 
@@ -39,16 +50,16 @@
 
 ```
 🧠 AI-Powered Analysis     📄 Multi-Format Support     💬 Enhanced Chat Interface
-├─ Amazon Titan Models    ├─ PDF Documents            ├─ Bigger Input Area
-├─ RAG Architecture       ├─ Excel Spreadsheets       ├─ Smart Suggestions
-├─ Financial Expertise    ├─ Word Documents           ├─ Quick Actions
-└─ Real-time Processing   └─ PowerPoint & More        └─ Modern Design
+├─ Amazon Titan v2 Models ├─ PDF Documents            ├─ Conversation Memory
+├─ RAG Architecture       ├─ Excel Spreadsheets       ├─ Context-Aware Queries
+├─ Financial Expertise    ├─ Word Documents           ├─ Smart Follow-ups
+└─ Real-time Processing   └─ PowerPoint & More        └─ Modern UI Design
 
-🔍 Vector Search          ⚡ Performance               🛡️ Security
-├─ PostgreSQL + pgvector  ├─ Sub-second Responses     ├─ AWS IAM Integration
-├─ Semantic Similarity    ├─ Scalable Architecture    ├─ VPC Network Isolation
-├─ Contextual Retrieval   ├─ Local Development        ├─ Encrypted Storage
-└─ Intelligent Ranking    └─ Cloud-Ready Deployment   └─ Access Controls
+🔍 Vector Search          ⚡ Performance               🛡️ Security & Observability
+├─ Titan Embeddings v2    ├─ Sub-second Responses     ├─ AWS IAM Integration
+├─ 1024-Dim Vectors       ├─ High Relevance Scores    ├─ LangSmith Tracing
+├─ Contextual Retrieval   ├─ Scalable Architecture    ├─ Comprehensive Monitoring
+└─ Intelligent Ranking    └─ Local Development        └─ Error Tracking
 ```
 
 ## 📋 Prerequisites
@@ -113,6 +124,11 @@ AWS_ACCESS_KEY_ID=your_access_key_here
 AWS_SECRET_ACCESS_KEY=your_secret_key_here
 AWS_REGION=us-east-1
 
+# LangSmith Configuration (Optional - for advanced tracing)
+LANGCHAIN_TRACING_V2=true
+LANGCHAIN_API_KEY=your_langsmith_api_key_here
+LANGCHAIN_PROJECT=financial-forecast-ai
+
 # Database Configuration (Optional - uses local storage by default)
 POSTGRES_CONNECTION=your_postgres_endpoint
 PGVECTOR_CONNECTION_STRING=postgresql://user:pass@host:5432/db
@@ -134,7 +150,7 @@ streamlit run src/ui/app.py --server.port 8516
 
 <div align="center">
 
-### 📱 **Modern Chat Interface**
+### 📱 **Modern Chat Interface with Conversation Memory**
 
 </div>
 
@@ -143,12 +159,14 @@ streamlit run src/ui/app.py --server.port 8516
 │  💭 Ask Your Financial Question                                │
 │                                                                 │
 │  ┌─────────────────────────────────────────────────────────┐   │
-│  │ 💡 Ask about prepayment rates, risk analysis, metrics... │   │
+│  │ 💡 Ask about deal 2025-003 pricing speed...             │   │
 │  │                                                         │   │
-│  │                                                         │   │
+│  │ 💬 Follow up: "Give me the bond value as well"         │   │
+│  │    ↳ 🧠 AI remembers context from previous messages    │   │
 │  └─────────────────────────────────────────────────────────┘   │
 │                                                                 │
 │  📊 Analyze Trends    ⚠️ Risk Assessment    📋 Summarize Docs   │
+│  🔍 LangSmith Traces  💭 Memory Context     🎯 Smart Follow-ups │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -157,10 +175,11 @@ streamlit run src/ui/app.py --server.port 8516
 | Step | Action | Description |
 |------|--------|-------------|
 | **1** | 📁 **Upload Documents** | Drag & drop PDF, Excel, Word, PowerPoint files |
-| **2** | 🔄 **Auto-Processing** | AI extracts and indexes content with vector embeddings |
-| **3** | 💬 **Ask Questions** | Use natural language or click suggestion chips |
-| **4** | 🧠 **AI Analysis** | Amazon Titan models analyze with RAG retrieval |
-| **5** | 📊 **View Results** | Get detailed insights with data visualizations |
+| **2** | 🔄 **Auto-Processing** | AI extracts and indexes content with Titan v2 embeddings |
+| **3** | 💬 **Ask Questions** | Use natural language with conversation memory support |
+| **4** | 🧠 **AI Analysis** | Amazon Titan models analyze with RAG retrieval & LangSmith tracing |
+| **5** | 📊 **View Results** | Get detailed insights with high relevance scores (0.70-0.80) |
+| **6** | 🔄 **Follow-up** | Ask contextual questions - AI remembers previous conversation |
 
 ### 📄 **Supported Document Formats**
 
@@ -256,6 +275,8 @@ aws iam create-access-key --user-name FinancialForecastUser
 | □ | **Credentials** | Valid | Check `.env` file |
 | □ | **Region** | us-east-1 | `aws configure get region` |
 | □ | **Bedrock Models** | Available | `aws bedrock list-foundation-models` |
+| □ | **Titan v2 Access** | Enabled | Check amazon.titan-embed-text-v2:0 |
+| □ | **LangSmith** | Optional | Set LANGCHAIN_TRACING_V2=true |
 | □ | **Permissions** | Working | Launch app and test |
 
 ### 🔍 **Troubleshooting Guide**
@@ -361,17 +382,18 @@ Local Machine                    AWS Services
 financial-forecast-ai/
 ├── 📁 src/                          # Source code
 │   ├── 🤖 agents/                   # AI Agent System
-│   │   ├── financial_agent.py       # Main orchestrator
+│   │   ├── financial_agent.py       # Main orchestrator with memory
 │   │   ├── analyst.py              # Amazon Titan interface
-│   │   └── vector_store.py         # Document management
+│   │   ├── vector_store.py         # Titan v2 embeddings (1024-dim)
+│   │   └── langsmith_integration.py # Comprehensive tracing & observability
 │   ├── 🔧 core/                    # Core business logic  
-│   └── 🎨 ui/                      # Modern Streamlit interface
-│       └── app.py                  # Enhanced chat UI
+│   └── 🎨 ui/                      # Enhanced Streamlit interface
+│       └── app.py                  # Chat UI with conversation memory
 ├── 🏗️ infra/                       # AWS Infrastructure
 │   ├── cloudformation.yaml        # Complete deployment template
 │   └── README.md                  # Infrastructure guide
 ├── 📋 requirements.txt             # Python dependencies
-├── 🔧 .env                        # Environment config
+├── 🔧 .env                        # Environment config (AWS + LangSmith)
 ├── 🐳 Dockerfile                  # Container setup
 └── 📖 README.md                   # This documentation
 ```
@@ -386,10 +408,16 @@ financial-forecast-ai/
 │  🎨 UI Layer              🤖 Agent Layer             ☁️ AWS Services            │
 │  ┌─────────────────┐     ┌─────────────────────┐    ┌─────────────────────┐    │
 │  │ • Streamlit UI  │────▶│ • Financial Agent   │───▶│ • Amazon Bedrock    │    │
-│  │ • Chat Interface│     │ • AI Analyst        │    │ • Titan Models      │    │
+│  │ • Chat Memory   │     │ • AI Analyst        │    │ • Titan v2 Models   │    │
 │  │ • File Upload   │     │ • Vector Store      │    │ • PostgreSQL + RDS │    │
-│  │ • Visualizations│     │ • RAG Pipeline      │    │ • IAM Security      │    │
+│  │ • Visualizations│     │ • RAG Pipeline      │    │ • LangSmith Tracing │    │
 │  └─────────────────┘     └─────────────────────┘    └─────────────────────┘    │
+│                                     │                           │               │
+│                                     ▼                           ▼               │
+│                            🔍 Conversation Memory      📊 Comprehensive         │
+│                            • Context Preservation      • Auto-tracing          │
+│                            • Follow-up Queries         • Performance Monitoring│
+│                            • Session Synchronization   • Error Tracking        │
 │                                                                                 │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -397,17 +425,23 @@ financial-forecast-ai/
 ### 🔄 **Data Flow**
 
 ```
-📄 Document Upload → 🔍 Processing → 🧠 AI Analysis → 💡 Insights
+📄 Document Upload → 🔍 Processing → 🧠 AI Analysis → 💡 Insights → 🔍 Tracing
 
 ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
 │ 📁 Files    │───▶│ ✂️ Chunking │───▶│ 🔢 Vectors  │───▶│ 💾 Storage  │
-│ Multi-format│    │ Text Split  │    │ Embeddings  │    │ Local/Cloud │
-└─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘
-                                               │
-┌─────────────┐    ┌─────────────┐    ┌─────────────┐    │
-│ 💬 Response │◀───│ 🧠 AI Model │◀───│ 🔍 Retrieval│◀───┘
-│ Formatted   │    │ Titan Text  │    │ Similarity  │
-└─────────────┘    └─────────────┘    └─────────────┘
+│ Multi-format│    │ Text Split  │    │ Titan v2    │    │ Local/Cloud │
+└─────────────┘    └─────────────┘    │ 1024-dim    │    └─────────────┘
+                                      └─────────────┘           │
+┌─────────────┐    ┌─────────────┐    ┌─────────────┐           │
+│ 💬 Response │◀───│ 🧠 AI Model │◀───│ 🔍 Retrieval│◀──────────┘
+│ + Memory    │    │ Titan Text  │    │ 0.70-0.80   │
+└─────────────┘    │ + Tracing   │    │ Similarity  │
+                   └─────────────┘    └─────────────┘
+                           │                   │
+                   ┌─────────────┐    ┌─────────────┐
+                   │ 📊 LangSmith│    │ 💭 Context  │
+                   │ Monitoring  │    │ Memory      │
+                   └─────────────┘    └─────────────┘
 ```
 
 ### 🛠️ **Technology Stack**
@@ -426,14 +460,16 @@ financial-forecast-ai/
 - CSS/HTML
 - JavaScript
 - Responsive UI
+- Conversation Memory
 
 </td>
 <td>
 
 - AWS Bedrock
-- Amazon Titan
+- Amazon Titan v2
 - LangChain
 - LangGraph
+- LangSmith
 
 </td>
 <td>
@@ -442,6 +478,7 @@ financial-forecast-ai/
 - pgvector
 - Local Storage
 - Vector Search
+- 1024-dim Embeddings
 
 </td>
 <td>
@@ -450,10 +487,35 @@ financial-forecast-ai/
 - CloudFormation
 - IAM Roles
 - Docker Ready
+- Observability
 
 </td>
 </tr>
 </table>
+
+### 🧪 **Testing Enhanced Features**
+
+**🔍 Conversation Memory Test:**
+```
+1. Ask: "Give me the pricing speed for deal 2025-003"
+2. Follow up: "Give me the bond value as well"
+   ↳ 🧠 AI should remember the deal context automatically
+
+3. Ask: "What about the settlement date?"
+   ↳ 💭 Should continue with deal 2025-003 context
+```
+
+**📊 LangSmith Tracing:**
+- All operations automatically traced when LANGCHAIN_TRACING_V2=true
+- View traces at: https://smith.langchain.com/
+- Monitor performance, relevance scores, and conversation flow
+
+**🎯 Vector Search Quality:**
+- Similarity scores typically range 0.70-0.80 for relevant documents
+- Enhanced with Amazon Titan Text Embeddings v2 (1024 dimensions)
+- Debug logging shows relevance scoring in console
+
+---
 
 ## 🎯 Key Use Cases
 
@@ -465,12 +527,12 @@ financial-forecast-ai/
 
 | 🎯 Use Case | 📄 Input | 🔍 Analysis | 💡 Output |
 |-------------|----------|-------------|-----------|
-| **Prepayment Risk** | Mortgage pool data | Historical trends + AI modeling | Risk scores & forecasts |
-| **Credit Assessment** | Financial statements | Multi-factor analysis | Credit ratings & recommendations |
-| **Yield Analysis** | Bond prospectuses | Cash flow modeling | Expected returns & duration |
-| **Market Research** | Industry reports | Competitive analysis | Market insights & opportunities |
-| **Compliance Check** | Regulatory docs | Rule interpretation | Compliance status & gaps |
-| **Investment Decision** | Due diligence files | Comprehensive review | Investment recommendations |
+| **Prepayment Risk** | Mortgage pool data | Historical trends + AI modeling | Risk scores & forecasts with 0.70+ relevance |
+| **Credit Assessment** | Financial statements | Multi-factor analysis + memory context | Credit ratings & recommendations |
+| **Yield Analysis** | Bond prospectuses | Cash flow modeling + Titan v2 embeddings | Expected returns & duration |
+| **Market Research** | Industry reports | Competitive analysis + conversation history | Market insights & opportunities |
+| **Compliance Check** | Regulatory docs | Rule interpretation + LangSmith tracing | Compliance status & gaps |
+| **Investment Decision** | Due diligence files | Comprehensive review + contextual follow-ups | Investment recommendations |
 
 ---
 

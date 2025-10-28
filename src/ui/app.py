@@ -756,7 +756,7 @@ def create_sidebar():
                                 st.success(f"🔍 Search Test: Found {len(test_results)} relevant chunks for '{test_query}'")
                                 with st.expander("Preview search results"):
                                     for i, result in enumerate(test_results, 1):
-                                        st.text(f"Result {i} (Relevance: {result.get('relevance_score', 0):.2f}):")
+                                        st.text(f"Result {i} (Relevance: {result.get('similarity_score', 0):.2f}):")
                                         st.text(f"Source: {result.get('metadata', {}).get('filename', 'unknown')}")
                                         st.text(f"Content: {result.get('content', '')[:300]}...")
                                         st.text("---")
@@ -1115,6 +1115,23 @@ def create_chat_interface():
         # Add user message to chat history
         st.session_state.messages.append({"role": "user", "content": prompt})
         
+        # Sync conversation with agent's LangChain memory
+        if st.session_state.agent:
+            try:
+                # Add user message to agent's memory systems
+                from langchain_core.messages import HumanMessage
+                user_message = HumanMessage(content=prompt)
+                
+                if st.session_state.agent.buffer_memory:
+                    st.session_state.agent.buffer_memory.chat_memory.add_user_message(user_message)
+                    
+                if st.session_state.agent.summary_memory:
+                    st.session_state.agent.summary_memory.chat_memory.add_user_message(user_message)
+                    
+                print(f"🧠 Added user message to LangChain memory: {prompt[:50]}...")
+            except Exception as e:
+                print(f"⚠️ Failed to sync message to LangChain memory: {e}")
+        
         # Create analysis container with fancy animations
         analysis_container = st.empty()
         
@@ -1170,6 +1187,22 @@ def create_chat_interface():
 
             # Add assistant message to chat history
             st.session_state.messages.append({"role": "assistant", "content": formatted_response})
+            
+            # Sync assistant response with agent's LangChain memory
+            if st.session_state.agent:
+                try:
+                    from langchain_core.messages import AIMessage
+                    ai_message = AIMessage(content=response.get("output", "No response generated"))
+                    
+                    if st.session_state.agent.buffer_memory:
+                        st.session_state.agent.buffer_memory.chat_memory.add_ai_message(ai_message)
+                        
+                    if st.session_state.agent.summary_memory:
+                        st.session_state.agent.summary_memory.chat_memory.add_ai_message(ai_message)
+                        
+                    print(f"🧠 Added AI response to LangChain memory")
+                except Exception as e:
+                    print(f"⚠️ Failed to sync AI response to LangChain memory: {e}")
             
             # Add LangSmith feedback collection
             if langsmith_manager.is_enabled:
@@ -1297,6 +1330,58 @@ def create_data_visualization(data):
         df = pd.DataFrame(data)
         st.table(df)
 
+def sync_messages_to_langchain_memory():
+    """Sync existing Streamlit messages with agent's LangChain memory"""
+    if not st.session_state.agent or not st.session_state.messages:
+        return
+    
+    try:
+        from langchain_core.messages import HumanMessage, AIMessage
+        
+        # Clear existing memory to avoid duplicates
+        if st.session_state.agent.buffer_memory:
+            st.session_state.agent.buffer_memory.clear()
+        if st.session_state.agent.summary_memory:
+            st.session_state.agent.summary_memory.clear()
+        
+        # Add all existing messages to LangChain memory
+        for msg in st.session_state.messages:
+            if msg["role"] == "user":
+                user_message = HumanMessage(content=msg["content"])
+                if st.session_state.agent.buffer_memory:
+                    st.session_state.agent.buffer_memory.chat_memory.add_user_message(user_message)
+                if st.session_state.agent.summary_memory:
+                    st.session_state.agent.summary_memory.chat_memory.add_user_message(user_message)
+            elif msg["role"] == "assistant":
+                # Extract the actual response content (remove formatting)
+                content = msg["content"]
+                if "**Analysis Complete**" in content:
+                    # Extract the actual response between the header and timestamp
+                    lines = content.split('\n')
+                    actual_content = []
+                    skip_next = False
+                    for line in lines:
+                        if line.startswith("**Analysis Complete**") or line.startswith("*Analysis completed at"):
+                            skip_next = True
+                            continue
+                        if not skip_next and line.strip():
+                            actual_content.append(line)
+                        skip_next = False
+                    content = '\n'.join(actual_content).strip()
+                
+                ai_message = AIMessage(content=content)
+                if st.session_state.agent.buffer_memory:
+                    st.session_state.agent.buffer_memory.chat_memory.add_ai_message(ai_message)
+                if st.session_state.agent.summary_memory:
+                    st.session_state.agent.summary_memory.chat_memory.add_ai_message(ai_message)
+        
+        if st.session_state.messages:
+            print(f"🧠 Synced {len(st.session_state.messages)} messages to LangChain memory")
+            
+    except Exception as e:
+        print(f"⚠️ Failed to sync messages to LangChain memory: {e}")
+
+
 def initialize_session_state():
     """Initialize session state variables"""
     if "messages" not in st.session_state:
@@ -1305,6 +1390,9 @@ def initialize_session_state():
         try:
             st.session_state.agent = FinancialAgent()
             print("✅ FinancialAgent initialized successfully")
+            
+            # Sync existing Streamlit messages with LangChain memory
+            sync_messages_to_langchain_memory()
             
         except Exception as e:
             st.error(f"Failed to initialize agent: {str(e)}")

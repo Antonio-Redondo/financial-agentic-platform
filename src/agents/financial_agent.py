@@ -16,7 +16,7 @@ from langchain_core.messages import HumanMessage, AIMessage
 from .analyst import FinancialAnalyst
 from .vector_store import VectorStore
 from .workflow_orchestrator import create_financial_workflow
-from .langsmith_integration import langsmith_manager, trace_financial_operation, with_langsmith_callbacks
+from .langsmith_integration import langsmith_manager, trace_financial_operation, with_langsmith_callbacks, trace_bedrock_call
 
 load_dotenv()
 
@@ -47,8 +47,9 @@ class FinancialAgent:
     def _initialize_langchain_memory(self):
         """Initialize LangChain memory components"""
         try:
-            # Initialize Bedrock chat model for memory operations
-            self.chat_model = BedrockChat(
+            # Initialize Bedrock chat model for memory operations with LangSmith tracing
+            self.chat_model = with_langsmith_callbacks(
+                BedrockChat,
                 model_id="amazon.titan-text-express-v1",
                 region_name=os.getenv("AWS_REGION", "us-east-1")
             )
@@ -76,6 +77,39 @@ class FinancialAgent:
             self.buffer_memory = None
             self.summary_memory = None
             self.chat_model = None
+    
+    def _traced_chat_call(self, messages: List, operation_name: str = "chat_call") -> str:
+        """Make a traced call to the Bedrock chat model"""
+        if not self.chat_model:
+            return "Chat model not available"
+        
+        start_time = time.time()
+        try:
+            with trace_bedrock_call("amazon.titan-text-express-v1", operation_name):
+                response = self.chat_model.invoke(messages)
+            latency_ms = (time.time() - start_time) * 1000
+            
+            # Extract content
+            response_content = response.content if hasattr(response, 'content') else str(response)
+            
+            # Trace the call
+            langsmith_manager.trace_llm_response(
+                prompt=str(messages),
+                response=response_content,
+                model_name="amazon.titan-text-express-v1",
+                latency_ms=latency_ms,
+                metadata={
+                    "component": "financial_agent",
+                    "operation": operation_name,
+                    "message_count": len(messages)
+                }
+            )
+            
+            return response_content
+            
+        except Exception as e:
+            print(f"Error in traced chat call: {e}")
+            return f"Error: {e}"
         
     @trace_financial_operation("search_and_analyze")
     def search_and_analyze(self, query: str) -> str:
@@ -253,6 +287,9 @@ class FinancialAgent:
                                 score += 100   # Moderate boost for deal header chunks
                         
                         result['query_relevance_score'] = score
+                        # Preserve the original similarity_score from vector search
+                        if 'similarity_score' not in result:
+                            result['similarity_score'] = result.get('similarity_score', 0.0)
                         scored_results.append(result)
                     
                     # Sort by query relevance within the correct deal
@@ -296,7 +333,7 @@ class FinancialAgent:
             search_results = unique_results[:search_limit]
             
             for i, result in enumerate(search_results):
-                print(f"  Result {i+1}: {result.get('metadata', {}).get('filename', 'unknown')} (score: {result.get('relevance_score', 0):.2f})")
+                print(f"  Result {i+1}: {result.get('metadata', {}).get('filename', 'unknown')} (score: {result.get('similarity_score', 0):.2f})")
                 
         except Exception as e:
             print(f"❌ Vector search error: {e}")
@@ -311,7 +348,7 @@ class FinancialAgent:
                 if isinstance(result, dict) and 'content' in result:
                     metadata = result.get('metadata', {})
                     filename = metadata.get('filename', f'Document {i}')
-                    relevance = result.get('relevance_score', 0)
+                    relevance = result.get('similarity_score', 0)
                     
                     context += f"📄 SOURCE: {filename} (Relevance: {relevance:.2f})\n"
                     context += f"CONTENT: {result['content']}\n"
