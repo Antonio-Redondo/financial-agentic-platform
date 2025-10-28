@@ -154,7 +154,74 @@ with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
 
 ---
 
-## 5. Enhanced Workflow Execution Steps
+## 5. LLM Call Architecture & Performance
+
+### 🤖 **LLM Invocation Pattern**
+
+| Phase | Agent | LLM Calls | Execution Mode | Model | Input Context |
+|-------|-------|-----------|---------------|-------|---------------|
+| **1** | 📄 **DocumentAnalysisAgent** | **1 LLM call** | Sequential | Amazon Titan TG1-Large | User query + vector search results |
+| **2A** | ⚠️ **RiskAssessmentAgent** | **1 LLM call** | ⚡ **Parallel** | Amazon Titan TG1-Large | Query + document analysis |
+| **2B** | 📊 **MarketAnalysisAgent** | **1 LLM call** | ⚡ **Parallel** | Amazon Titan TG1-Large | Query + document analysis |
+| **3** | 💡 **RecommendationAgent** | **1 LLM call** | Sequential | Amazon Titan TG1-Large | All previous outputs |
+
+### 🔥 **Total: 4 LLM Calls per Workflow (2 Parallel)**
+
+### 🎯 **LLM Call Implementation Details**
+```python
+# Each agent calls the same LLM engine
+class SpecializedAgent:
+    def __init__(self):
+        self.analyst = FinancialAnalyst()  # Shared LLM engine
+    
+    def analyze(self, state):
+        # Specialized prompt for this agent's domain
+        specialized_prompt = self.build_domain_prompt(state)
+        
+        # Single LLM call with domain expertise
+        result = self.analyst.analyze(specialized_prompt)
+        return result
+```
+
+### ⚡ **Parallel LLM Execution Breakthrough**
+```python
+# financial_workflow.py - Parallel Coordinator
+with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+    # 🚀 SIMULTANEOUS LLM CALLS - Game Changer!
+    risk_future = executor.submit(self.risk_agent.assess_risk, risk_state)
+    market_future = executor.submit(self.market_agent.analyze_market, market_state)
+    
+    # Both agents calling Amazon Titan simultaneously
+    risk_result = risk_future.result(timeout=300)  # 5-minute timeout
+    market_result = market_future.result(timeout=300)
+```
+
+### 📊 **LLM Performance Metrics**
+- **Sequential Execution**: 4 × 15-30s = **60-120 seconds**
+- **⚡ Parallel Execution**: 3 phases (1+2+1) = **45-80 seconds** (**33% faster!**)
+- **Model**: Amazon Titan TG1-Large (4000 max tokens, 0.8 temperature)
+- **Thread Safety**: Concurrent LLM calls without interference
+
+### 🔍 **LLM Observability with LangSmith**
+```python
+# Every LLM call is traced and monitored
+@trace_bedrock_call("amazon.titan-tg1-large", "financial_analysis")
+def analyze(self, prompt):
+    response = self.llm.invoke([message])
+    
+    # Comprehensive tracing
+    langsmith_manager.trace_llm_response(
+        prompt=prompt,
+        response=response.content,
+        model_name="amazon.titan-tg1-large",
+        latency_ms=llm_latency,
+        metadata={"component": "financial_analyst"}
+    )
+```
+
+---
+
+## 6. Enhanced Workflow Execution Steps
 
 | Phase | Execution Mode | Agent(s) | Input | Output | Performance |
 |-------|----------------|----------|-------|--------|-------------|
@@ -169,7 +236,7 @@ with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
 
 ---
 
-## 6. Enterprise-Grade Error Handling & Resilience
+## 7. Enterprise-Grade Error Handling & Resilience
 
 ### �️ **Robust Error Management**
 - **Timeout Protection**: 5-minute timeouts prevent infinite execution
@@ -196,7 +263,7 @@ confidence_scores = {
 
 ---
 
-## 7. Integration with Financial Ecosystem
+## 8. Integration with Financial Ecosystem
 
 <p align="center">
    <img src="https://img.icons8.com/ios-filled/50/000000/flow-chart.png" width="40"/> <br>
@@ -218,7 +285,7 @@ confidence_scores = {
 
 ---
 
-## 8. Extending the Multi-Agent Architecture
+## 9. Extending the Multi-Agent Architecture
 
 ### 🚀 **Extensibility Framework**
 | Action | Implementation | Complexity | Impact |
@@ -246,7 +313,7 @@ class NewSpecializedAgent:
 
 ---
 
-## 9. Performance Metrics & Benefits
+## 10. Performance Metrics & Benefits
 
 ### 📈 **Performance Advantages**
 |  |  |
@@ -267,7 +334,7 @@ class NewSpecializedAgent:
 
 ---
 
-## 10. Comprehensive Output Structure
+## 11. Comprehensive Output Structure
 
 ### 📋 **Multi-Agent Analysis Report Format**
 
@@ -305,7 +372,7 @@ class NewSpecializedAgent:
 
 ---
 
-## 11. Technical Architecture & Dependencies
+## 12. Technical Architecture & Dependencies
 
 ### 🔧 **Core Technologies**
 - **LangGraph**: Advanced workflow orchestration with state management
@@ -334,7 +401,7 @@ src/agents/workflow_orchestrator/
 
 ---
 
-## 12. References & Documentation
+## 13. References & Documentation
 
 ### 📖 **Technical References**
 - [LangGraph Documentation](https://github.com/langchain-ai/langgraph) - Workflow orchestration framework
