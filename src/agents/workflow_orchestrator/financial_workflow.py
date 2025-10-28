@@ -158,7 +158,7 @@ class FinancialWorkflow:
         return workflow.compile()
     
     def execute_workflow(self, query: str) -> Dict[str, Any]:
-        """Execute the complete multi-agent workflow with parallel execution and context sufficiency checking"""
+        """Execute the complete multi-agent workflow with parallel execution"""
         
         # Initialize state
         initial_state = WorkflowState(
@@ -180,18 +180,14 @@ class FinancialWorkflow:
             # Execute the workflow
             result = self.workflow.invoke(initial_state)
             
-            # ENHANCED: Check context sufficiency and enhance if needed
-            enhanced_result = self._enhance_workflow_context_if_needed(result, query)
-            
             # Format the comprehensive response
-            response = self._format_workflow_response(enhanced_result)
+            response = self._format_workflow_response(result)
             
             return {
                 "success": True,
                 "response": response,
-                "workflow_state": enhanced_result,
-                "confidence": enhanced_result.get("confidence_scores", {}).get("overall", 0.5),
-                "context_enhanced": enhanced_result != result
+                "workflow_state": result,
+                "confidence": result.get("confidence_scores", {}).get("overall", 0.5)
             }
             
         except Exception as e:
@@ -200,191 +196,8 @@ class FinancialWorkflow:
                 "success": False,
                 "response": f"Workflow execution error: {str(e)}",
                 "workflow_state": initial_state,
-                "confidence": 0.0,
-                "context_enhanced": False
+                "confidence": 0.0
             }
-    
-    def _enhance_workflow_context_if_needed(self, result: WorkflowState, original_query: str) -> WorkflowState:
-        """
-        Check if workflow results show insufficient context and enhance if needed
-        """
-        print("🔍 Evaluating workflow context sufficiency...")
-        
-        # Collect all analysis text
-        all_analysis = [
-            result.get('document_analysis', ''),
-            result.get('risk_assessment', ''),
-            result.get('market_analysis', ''),
-            result.get('final_recommendation', '')
-        ]
-        
-        combined_analysis = ' '.join(all_analysis).lower()
-        
-        # Context sufficiency indicators
-        insufficient_indicators = [
-            "insufficient information",
-            "no specific data",
-            "cannot determine",
-            "unable to provide",
-            "limited information",
-            "not enough detail",
-            "requires additional data",
-            "insufficient context"
-        ]
-        
-        # Quality indicators
-        quality_indicators = [
-            "based on the analysis",
-            "specific metrics show",
-            "the data indicates",
-            "according to the documents",
-            "financial analysis reveals",
-            "comprehensive assessment"
-        ]
-        
-        insufficient_count = sum(1 for indicator in insufficient_indicators if indicator in combined_analysis)
-        quality_count = sum(1 for indicator in quality_indicators if indicator in combined_analysis)
-        
-        analysis_length = len(combined_analysis)
-        confidence_scores = result.get('confidence_scores', {})
-        average_confidence = sum(confidence_scores.values()) / len(confidence_scores) if confidence_scores else 0.3
-        
-        # Calculate overall context quality
-        context_quality_score = 0
-        context_quality_score += quality_count * 2
-        context_quality_score += min(analysis_length / 1000, 3)  # Length bonus (max 3)
-        context_quality_score += average_confidence * 3  # Confidence bonus
-        context_quality_score -= insufficient_count * 2  # Penalty for insufficient indicators
-        
-        print(f"📊 Workflow context quality score: {context_quality_score:.1f}/10")
-        print(f"📊 Insufficient indicators: {insufficient_count}")
-        print(f"📊 Quality indicators: {quality_count}")
-        print(f"📊 Average confidence: {average_confidence:.2f}")
-        print(f"📊 Total analysis length: {analysis_length} chars")
-        
-        # If context quality is poor, attempt enhancement
-        if context_quality_score < 5.0 or insufficient_count > 2:
-            print("🔄 Workflow context appears insufficient - attempting enhancement...")
-            
-            # Perform enhanced document search
-            enhanced_documents = self._perform_enhanced_document_search(original_query, result)
-            
-            if enhanced_documents and len(enhanced_documents) > len(result.get('context_documents', [])):
-                print(f"✅ Found {len(enhanced_documents)} enhanced documents for re-analysis")
-                
-                # Re-run document analysis with enhanced context
-                enhanced_state = result.copy()
-                enhanced_state['context_documents'] = enhanced_documents
-                
-                # Re-run document analysis agent with enhanced context
-                enhanced_doc_analysis = self.doc_agent.analyze_documents(enhanced_state)
-                
-                # Check if enhanced analysis is actually better
-                enhanced_analysis_text = enhanced_doc_analysis.get('document_analysis', '')
-                enhanced_insufficient = sum(1 for indicator in insufficient_indicators 
-                                          if indicator in enhanced_analysis_text.lower())
-                enhanced_quality = sum(1 for indicator in quality_indicators 
-                                     if indicator in enhanced_analysis_text.lower())
-                
-                if (enhanced_insufficient < insufficient_count or 
-                    enhanced_quality > quality_count or 
-                    len(enhanced_analysis_text) > analysis_length * 0.5):
-                    
-                    print("✅ Enhanced document analysis appears better - updating workflow result")
-                    result.update(enhanced_doc_analysis)
-                    result['agent_reasoning']['context_enhancement'] = "Applied enhanced document search due to insufficient initial context"
-                else:
-                    print("⚠️ Enhanced analysis not significantly better - keeping original")
-            else:
-                print("⚠️ Enhanced document search did not find additional relevant content")
-        else:
-            print("✅ Workflow context appears sufficient - no enhancement needed")
-        
-        return result
-    
-    def _perform_enhanced_document_search(self, query: str, current_state: WorkflowState) -> List:
-        """
-        Perform enhanced document search for workflow context enhancement
-        """
-        print("🔍 Performing enhanced document search for workflow...")
-        
-        enhanced_documents = []
-        current_docs = current_state.get('context_documents', [])
-        
-        # Strategy 1: Extract deal numbers and search more broadly
-        import re
-        deal_pattern = r'(?:deal\s*)?20\d{2}-\d{3}'
-        deal_matches = re.findall(deal_pattern, query.lower())
-        
-        if deal_matches:
-            deal_number = deal_matches[0].replace("deal ", "").strip()
-            
-            # Broader deal searches
-            enhanced_searches = [
-                f"{deal_number}",
-                f"FNM {deal_number}",
-                f"FNMA {deal_number}",
-                deal_number.replace("-", ""),
-                f"2025-{deal_number.split('-')[1]}" if '-' in deal_number else deal_number
-            ]
-            
-            for search_term in enhanced_searches:
-                try:
-                    results = self.vector_store.search_documents(search_term, k=10)
-                    enhanced_documents.extend(results)
-                    print(f"📍 Enhanced search '{search_term}': {len(results)} results")
-                except Exception as e:
-                    print(f"⚠️ Enhanced search failed for '{search_term}': {e}")
-        
-        # Strategy 2: Financial keyword expansion
-        financial_keywords = self._extract_financial_keywords_for_workflow(query)
-        for keyword in financial_keywords:
-            try:
-                results = self.vector_store.search_documents(keyword, k=5)
-                enhanced_documents.extend(results)
-                print(f"📍 Keyword search '{keyword}': {len(results)} results")
-            except Exception as e:
-                print(f"⚠️ Keyword search failed for '{keyword}': {e}")
-        
-        # Remove duplicates
-        unique_documents = []
-        seen_content = set()
-        
-        for doc in enhanced_documents:
-            if isinstance(doc, dict) and 'content' in doc:
-                content_hash = hash(doc['content'][:200])
-                if content_hash not in seen_content:
-                    seen_content.add(content_hash)
-                    unique_documents.append(doc)
-        
-        print(f"🔍 Enhanced document search: {len(enhanced_documents)} → {len(unique_documents)} unique documents")
-        return unique_documents
-    
-    def _extract_financial_keywords_for_workflow(self, query: str) -> List[str]:
-        """Extract financial keywords for workflow enhancement"""
-        financial_terms = {
-            'collateral': ['pool', 'asset', 'backing', 'underlying', 'mortgage'],
-            'average life': ['WAL', 'weighted average life', 'duration', 'maturity', 'years'],
-            'underwriter': ['bank', 'dealer', 'bookrunner', 'lead', 'manager'],
-            'tranche': ['class', 'series', 'bond', 'note', 'security'],
-            'pricing': ['yield', 'spread', 'rate', 'coupon', 'price'],
-            'risk': ['credit', 'prepayment', 'interest rate', 'default', 'assessment'],
-            'analysis': ['assessment', 'evaluation', 'review', 'forecast', 'projection']
-        }
-        
-        keywords = []
-        query_lower = query.lower()
-        
-        for main_term, related_terms in financial_terms.items():
-            if main_term in query_lower:
-                keywords.extend(related_terms[:3])  # Limit related terms
-        
-        # Add important words from query
-        important_words = [word for word in query.split() 
-                          if len(word) > 4 and word.lower() not in ['what', 'give', 'show', 'tell', 'about']]
-        keywords.extend(important_words)
-        
-        return list(set(keywords))[:8]  # Limit total keywords
     
     def _format_workflow_response(self, state: WorkflowState) -> str:
         """Format the multi-agent workflow results into a comprehensive response"""

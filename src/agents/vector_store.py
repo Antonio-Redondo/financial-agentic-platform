@@ -187,7 +187,7 @@ class FinancialDocumentSplitter:
 class VectorStore:
     def __init__(self):
         self.embeddings = BedrockEmbeddings(
-            model_id="amazon.titan-embed-text-v2:0",
+            model_id="amazon.titan-embed-text-v1",
             region_name=os.getenv("AWS_REGION", "us-east-1")
         )
         
