@@ -118,6 +118,86 @@ search_limit = 7 if is_content_request else 5
 - **Content Requests**: 7 documents (more comprehensive)
 - **General Queries**: 5 documents (focused results)
 
+### **Understanding the "k" Parameter in Document Search**
+
+The **"k" parameter** is fundamental to our search strategy, controlling the **number of top results** returned from vector database similarity searches. This parameter directly impacts both search accuracy and system performance.
+
+#### **What "k" Controls:**
+
+```python
+# k parameter determines result quantity
+search_results = vector_store.search_documents(query, k=k)
+```
+
+**Parameter meanings:**
+- **k = 5**: Return top 5 most similar documents
+- **k = 10**: Return top 10 most similar documents  
+- **k = 3**: Return only top 3 most similar documents
+
+#### **Our Strategic k Values:**
+
+| Search Context | k Value | Usage Pattern | Performance Impact |
+|----------------|---------|---------------|-------------------|
+| **Deal-Specific Searches** | k=10 | `search_documents(f"DEAL_NUMBER {deal_number}", k=10)` | Comprehensive deal coverage |
+| **Content Requests** | k=7 | `search_documents(query, k=7)` | More comprehensive results |
+| **General Document Search** | k=5 | `search_documents(query, k=5)` | Balanced relevance/performance |
+| **Multi-Agent Workflows** | k=5 | Each agent uses `k=5` for focused analysis | Optimal agent performance |
+| **Tranche Header Searches** | k=5 | `search_documents(f"DEAL_NUMBER {deal_number} NUMBER_OF_TRANCHES", k=5)` | Focused tranche data |
+| **Broader/Fallback Searches** | k=3 | `search_documents(term, k=3)` | Quick, focused fallback |
+| **Conversation Memory** | k=5 | `ConversationBufferWindowMemory(k=5)` | Recent conversation context |
+
+#### **k Parameter Strategy by Query Flow:**
+
+```python
+# Dynamic k selection based on query type
+def determine_k_value(query: str, is_content_request: bool, is_deal_specific: bool) -> int:
+    if is_deal_specific:
+        return 10  # Comprehensive deal information
+    elif is_content_request:
+        return 7   # More comprehensive content
+    else:
+        return 5   # Balanced performance
+```
+
+#### **Performance vs. Accuracy Trade-offs:**
+
+**Higher k values (k=10-15):**
+- ✅ More comprehensive context
+- ✅ Better coverage of related information
+- ❌ Increased processing time
+- ❌ Potential for noise in results
+
+**Lower k values (k=3-5):**
+- ✅ Faster search performance
+- ✅ More focused, relevant results
+- ❌ Might miss relevant context
+- ❌ Less comprehensive coverage
+
+**Optimal k selection:**
+- **Deal queries**: k=10 (need comprehensive deal context)
+- **General queries**: k=5 (balanced approach)
+- **Fallback searches**: k=3 (quick, focused results)
+
+#### **Real-World Examples:**
+
+```python
+# Deal-specific query (k=10 for comprehensive coverage)
+query = "What's the pricing for Deal 2025-003?"
+results = search_documents(f"DEAL_NUMBER 2025-003", k=10)
+
+# Content request (k=7 for detailed content)
+query = "Show me the risk analysis document content"
+results = search_documents(query, k=7)
+
+# General financial query (k=5 for balanced results)
+query = "What are the market trends?"
+results = search_documents(query, k=5)
+
+# Fallback search (k=3 for quick focused results)
+query = "financial data"
+results = search_documents("financial", k=3)
+```
+
 ### **4. Vector Store Search Implementation (`src/agents/vector_store.py`)**
 
 The search algorithm adapts based on the storage backend:
@@ -455,19 +535,23 @@ BEDROCK_MODEL_ID=amazon.titan-embed-text-v1
 ```
 
 ### **Search Limits:**
-- **Content requests**: 7 documents
-- **General queries**: 5 documents  
-- **Multi-agent searches**: 5 documents per agent
-- **Broader search fallback**: 3 documents
+- **Content requests**: k=7 documents (comprehensive content coverage)
+- **General queries**: k=5 documents (balanced relevance/performance)
+- **Deal-specific queries**: k=10 documents (comprehensive deal coverage)
+- **Multi-agent searches**: k=5 documents per agent (focused analysis)
+- **Broader search fallback**: k=3 documents (quick focused results)
+- **Conversation memory**: k=5 exchanges (recent context)
 
 ## 🚀 **Future Enhancements**
 
 ### **Planned Improvements:**
 1. **Semantic search enhancement** with better embeddings
-2. **Query expansion** using financial ontologies
-3. **Learning from user feedback** for relevance tuning
-4. **Advanced caching** for frequently searched terms
-5. **Real-time indexing** for new document uploads
+2. **Dynamic k parameter optimization** based on query complexity and document density
+3. **Query expansion** using financial ontologies
+4. **Learning from user feedback** for relevance tuning
+5. **Advanced caching** for frequently searched terms
+6. **Real-time indexing** for new document uploads
+7. **Adaptive k selection** based on result quality metrics
 
 ### **Advanced Features:**
 1. **Multi-modal search** (text + numerical data)
