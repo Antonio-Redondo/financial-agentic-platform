@@ -171,18 +171,31 @@ class FinancialAgent:
         deal_matches = re.findall(deal_pattern, query.lower())
         is_deal_specific = bool(deal_matches)
         
+        # If not deal-specific, check conversation context for last deal mentioned
+        context_deal_number = None
+        if not is_deal_specific and "recent_deals" in self.conversation_context and self.conversation_context["recent_deals"]:
+            context_deal_number = self.conversation_context["recent_deals"][-1]  # Get the most recent deal
+            print(f"🔍 No deal in query, using last deal from context: {context_deal_number}")
+        
         # Search for relevant documents with more results - be more aggressive
         search_limit = 7 if is_content_request else 5
         
         print(f"📊 Document search - is_content_request: {is_content_request}, search_limit: {search_limit}, is_deal_specific: {is_deal_specific}")
         if deal_matches:
             print(f"🎯 Deal-specific query detected for: {deal_matches}")
+        elif context_deal_number:
+            print(f"🎯 Using deal from conversation context: {context_deal_number}")
         
         try:
-            # For deal-specific queries, use more targeted search approach
-            if is_deal_specific and deal_matches:
-                deal_number = deal_matches[0].replace("deal ", "").strip()
-                print(f"🎯 Deal-specific query detected for: {deal_number}")
+            # For deal-specific queries OR when we have a context deal, use more targeted search approach
+            if (is_deal_specific and deal_matches) or context_deal_number:
+                # Determine which deal number to use
+                if is_deal_specific and deal_matches:
+                    deal_number = deal_matches[0].replace("deal ", "").strip()
+                    print(f"🎯 Deal-specific query detected for: {deal_number}")
+                else:
+                    deal_number = context_deal_number
+                    print(f"🎯 Using deal from conversation context: {deal_number}")
                 
                 # SUPER STRICT APPROACH: Search specifically for the deal number first
                 deal_only_results = self.vector_store.search_documents(f"DEAL_NUMBER {deal_number}", k=10)
