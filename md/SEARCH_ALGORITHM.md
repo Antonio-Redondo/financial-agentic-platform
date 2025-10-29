@@ -84,13 +84,42 @@ def search_algorithm(query: str) -> List[Dict]:
 5. Score chunks based on query relevance within deal context
 ```
 
+#### **The "k" Parameter in Similarity Search**
+
+The **"k"** parameter determines the **number of top results** returned from vector database similarity searches. It's crucial for balancing accuracy with performance:
+
+```python
+# k parameter controls result quantity
+search_results = vector_store.similarity_search_with_score(query, k=k)
+```
+
+**Understanding k values:**
+- **k = 5** means "return the top 5 most similar documents"
+- **k = 10** means "return the top 10 most similar documents"  
+- **k = 1** means "return only the most similar document"
+
+**Our App's k Strategy:**
+
+| Search Context | k Value | Rationale |
+|----------------|---------|-----------|
+| Deal-Specific Searches | k=10 | Comprehensive deal information coverage |
+| Tranche Header Searches | k=5 | Focused tranche-specific data |
+| General Document Search | k=5 | Balanced relevance and performance |
+| Broader/Fallback Searches | k=3 | Quick, focused results |
+| Conversation Memory | k=5 | Last 5 conversation exchanges |
+
+**How k affects search quality:**
+- **Higher k** = More context but potentially more noise
+- **Lower k** = More focused but might miss relevant information
+- **Optimal k** = Depends on query complexity and document density
+
 #### **Search Strategy Matrix**
 
-| Query Type | Search Strategy | Filters Applied | Result Limit |
-|------------|-----------------|-----------------|--------------|
-| Deal-Specific | Strict Deal Filter + Header Search | Filename matching, Deal number validation | 10 documents |
-| Content Request | Semantic Vector Search | Relevance threshold > 0.7 | 7 documents |
-| General Financial | Broad Vector Search + Fallback | Content deduplication | 5 documents |
+| Query Type | Search Strategy | Filters Applied | k Value | Result Limit |
+|------------|-----------------|-----------------|---------|--------------|
+| Deal-Specific | Strict Deal Filter + Header Search | Filename matching, Deal number validation | 10 | 10 documents |
+| Content Request | Semantic Vector Search | Relevance threshold > 0.7 | 5 | 7 documents |
+| General Financial | Broad Vector Search + Fallback | Content deduplication | 5 | 5 documents |
 
 ### **C. Advanced Document Chunking Strategy**
 
@@ -319,7 +348,10 @@ memory_layers = {
 ### **Latency Optimization**
 
 #### **Search Optimization**
-- **Dynamic Result Limiting**: 5-7 documents based on query complexity
+- **Dynamic Result Limiting (k parameter)**: 
+  - Deal queries: k=10 (comprehensive coverage)
+  - General queries: k=5 (balanced relevance/performance)
+  - Fallback searches: k=3 (focused results)
 - **Parallel Processing**: Risk, market, and document analysis run concurrently
 - **Efficient Vector Search**: PostgreSQL + pgvector with optimized similarity search
 
@@ -507,7 +539,12 @@ SEARCH_CONFIG = {
     "chunk_overlap": 100,
     "max_search_results": 7,
     "relevance_threshold": 0.7,
-    "deal_boost_factor": 1000
+    "deal_boost_factor": 1000,
+    # k parameter settings for different search types
+    "k_deal_specific": 10,      # Comprehensive deal coverage
+    "k_general_search": 5,      # Balanced performance
+    "k_fallback_search": 3,     # Quick focused results
+    "k_conversation_memory": 5  # Recent conversation context
 }
 
 # Memory Configuration
@@ -531,18 +568,27 @@ MODEL_CONFIG = {
 
 #### **For Deal-Heavy Workloads**
 - Increase `deal_boost_factor` to 1500
+- Set `k_deal_specific` to 15 (more comprehensive deal context)
 - Set `max_search_results` to 10
 - Enable strict deal filtering
 
 #### **For General Financial Analysis**
 - Reduce `chunk_size` to 1000
+- Set `k_general_search` to 7 (broader context)
 - Increase `temperature` to 0.9
 - Focus on semantic search
 
 #### **For High-Precision Requirements**
 - Increase `relevance_threshold` to 0.8
+- Reduce `k_general_search` to 3 (most relevant only)
 - Reduce `temperature` to 0.7
 - Enable multi-agent validation
+
+#### **For Performance Optimization**
+- Reduce `k_deal_specific` to 7 (faster deal queries)
+- Set `k_fallback_search` to 2 (minimal fallback)
+- Lower `chunk_overlap` to 50
+- Optimize vector index configuration
 
 ---
 
