@@ -30,11 +30,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Initialize LangSmith integration after page config
-if langsmith_manager.is_enabled:
-    st.success("🔬 LangSmith observability enabled")
-else:
-    st.info("ℹ️ LangSmith observability disabled")
+# LangSmith integration initialized silently (no UI display)
 
 # Custom CSS for modern styling
 def load_custom_css():
@@ -836,56 +832,7 @@ def create_sidebar():
         else:
             st.warning(f"⚠️ Unknown S3 status: {s3_status}")
         
-        # LangSmith Analytics Section
-        if langsmith_manager.is_enabled:
-            st.markdown("---")
-            st.markdown("### 🔬 LangSmith Analytics")
-            
-            # Get project analytics
-            try:
-                analytics = langsmith_manager.get_project_analytics(days_back=7)
-                
-                if analytics and analytics.get("status") == "full_access":
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        st.metric("Total Runs", analytics.get("total_runs", 0))
-                        st.metric("Success Rate", f"{(analytics.get('successful_runs', 0) / max(analytics.get('total_runs', 1), 1) * 100):.1f}%")
-                    
-                    with col2:
-                        st.metric("Error Runs", analytics.get("error_runs", 0))
-                        avg_latency = analytics.get("avg_latency", 0)
-                        st.metric("Avg Latency", f"{avg_latency:.2f}s" if avg_latency else "N/A")
-                    
-                    st.markdown(f"**Project:** {analytics.get('project_name', 'Unknown')}")
-                    st.markdown(f"**Last 7 days**")
-                    
-                    # Link to LangSmith dashboard
-                    langsmith_url = f"https://smith.langchain.com/o/{os.getenv('LANGCHAIN_PROJECT', 'financial-forecast-ai-app')}"
-                    st.markdown(f"🔗 [View Full Dashboard]({langsmith_url})")
-                    
-                elif analytics and analytics.get("status") in ["limited_access", "access_denied"]:
-                    st.info("📊 LangSmith Analytics")
-                    st.markdown(f"**Status:** {analytics.get('message', 'Limited access')}")
-                    st.markdown(f"**Local Tracing:** {analytics.get('local_tracing', 'enabled')}")
-                    st.markdown("**Features Available:**")
-                    st.markdown("- ✅ Query and response tracking")
-                    st.markdown("- ✅ Performance monitoring") 
-                    st.markdown("- ✅ Error logging")
-                    st.markdown("- ⚠️ Dashboard analytics (limited)")
-                    
-                    # Link to LangSmith dashboard
-                    langsmith_url = f"https://smith.langchain.com/o/{os.getenv('LANGCHAIN_PROJECT', 'financial-forecast-ai-app')}"
-                    st.markdown(f"🔗 [View LangSmith Dashboard]({langsmith_url})")
-                else:
-                    st.info("📊 No analytics data available yet")
-                    
-            except Exception as e:
-                st.warning(f"⚠️ LangSmith analytics unavailable: {str(e)}")
-        else:
-            st.markdown("---")
-            st.markdown("### 🔬 LangSmith Integration")
-            st.info("💡 Enable LangSmith tracing by setting LANGCHAIN_TRACING_V2=true in your .env file")
+
         
         st.markdown("---")
 
@@ -1077,7 +1024,7 @@ def process_documents(uploaded_files):
                 "processed_at": datetime.now(),
                 "content": content[:500] + "..." if len(content) > 500 else content,
                 "indexed": vector_store is not None,
-                "chunks_created": len(vector_store.smart_splitter.split_text(content)) if vector_store else 0
+                "chunks_created": len(vector_store.financial_splitter.split_text(content)) if vector_store else 0
             })
             
             # Update progress
@@ -1204,43 +1151,6 @@ def create_chat_interface():
                 except Exception as e:
                     print(f"⚠️ Failed to sync AI response to LangChain memory: {e}")
             
-            # Add LangSmith feedback collection
-            if langsmith_manager.is_enabled:
-                with st.expander("📝 Rate this response (helps improve the AI)", expanded=False):
-                    feedback_col1, feedback_col2 = st.columns([3, 1])
-                    
-                    with feedback_col1:
-                        feedback_score = st.select_slider(
-                            "How helpful was this response?",
-                            options=[1, 2, 3, 4, 5],
-                            value=3,
-                            format_func=lambda x: ["⭐", "⭐⭐", "⭐⭐⭐", "⭐⭐⭐⭐", "⭐⭐⭐⭐⭐"][x-1],
-                            key=f"feedback_score_{len(st.session_state.messages)}"
-                        )
-                        
-                        feedback_text = st.text_area(
-                            "Additional feedback (optional):",
-                            placeholder="What could be improved? What was particularly helpful?",
-                            key=f"feedback_text_{len(st.session_state.messages)}",
-                            height=80
-                        )
-                    
-                    with feedback_col2:
-                        if st.button("Submit Feedback", key=f"feedback_submit_{len(st.session_state.messages)}"):
-                            session_id = st.session_state.get('session_id', str(time.time()))
-                            success = langsmith_manager.log_user_feedback(
-                                session_id=session_id,
-                                query=prompt,
-                                response=response.get("output", ""),
-                                feedback_score=feedback_score,
-                                feedback_text=feedback_text if feedback_text.strip() else None
-                            )
-                            
-                            if success:
-                                st.success("🙏 Thank you for your feedback!")
-                            else:
-                                st.warning("⚠️ Feedback not logged (LangSmith unavailable)")
-
             # Show additional visualizations if data is present
             if "data" in response and response["data"]:
                 create_data_visualization(response["data"])

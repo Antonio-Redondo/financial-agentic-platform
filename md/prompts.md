@@ -38,10 +38,3 @@
 "Show tranche details for deal 2025-003, including CUSIP and coupon rates."
 "Forecast prepayment speeds for deal 2025-003 and discuss their impact on tranches."
 
-# Deal-Specific Example Prompts
-"What is the pricing speed for deal 2025-004?"
-"Analyze the collateral pools for deal 2025-004. Highlight agency, mortgage type, WAC, and face amount."
-"Provide a risk assessment for deal 2025-004 with underwriter BANK_OF_AMERICA."
-"Show tranche details for deal 2025-004, including CUSIP and coupon rates."
-"Forecast prepayment speeds for deal 2025-004 and discuss their impact on tranches."
-

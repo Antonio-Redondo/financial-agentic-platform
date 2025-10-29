@@ -166,7 +166,8 @@ class FinancialAgent:
         
         # Detect deal-specific queries for more targeted search
         import re
-        deal_pattern = r'(?:deal\s*)?20\d{2}-\d{3}'
+        # Updated pattern to handle both formats: 2025-003 and 20250-001
+        deal_pattern = r'(?:deal\s*)?20\d{2,3}-\d{3}'
         deal_matches = re.findall(deal_pattern, query.lower())
         is_deal_specific = bool(deal_matches)
         
@@ -607,7 +608,8 @@ Provide comprehensive financial analysis addressing the question with your finan
     def _extract_deal_numbers(self, query: str) -> List[str]:
         """Extract deal numbers from query"""
         import re
-        deal_pattern = r'(?:deal\s*)?20\d{2}-\d{3}'
+        # Updated pattern to handle both formats: 2025-003 and 20250-001
+        deal_pattern = r'(?:deal\s*)?20\d{2,3}-\d{3}'
         deals = re.findall(deal_pattern, query.lower())
         return [deal.replace("deal ", "").strip() for deal in deals]
     
@@ -651,7 +653,8 @@ Provide comprehensive financial analysis addressing the question with your finan
         import re
         
         # Extract deal numbers mentioned
-        deal_pattern = r'(?:deal\s*)?20\d{2}-\d{3}'
+        # Updated pattern to handle both formats: 2025-003 and 20250-001
+        deal_pattern = r'(?:deal\s*)?20\d{2,3}-\d{3}'
         deals_mentioned = re.findall(deal_pattern, user_message.lower() + " " + ai_response.lower())
         
         if deals_mentioned:
