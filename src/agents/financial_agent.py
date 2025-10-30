@@ -378,26 +378,29 @@ class FinancialAgent:
         # Create enhanced analysis prompt optimized for Amazon Titan's capabilities
         if search_results and context and "RELEVANT DOCUMENT CONTENT" in context:
             # For queries with document content available, be assertive about using it
+            print(f"✅ SENDING CONTENT TO AI - {len(search_results)} documents, context length: {len(context)} chars")
+            print(f"🔍 Context preview: {context[:200]}...")
+            
             analysis_query = f"""
-You are a senior financial analyst with access to specific document content. The user has uploaded financial documents and is asking for analysis based on those documents.
-
-USER QUERY: {query}
+DOCUMENT DATA PROVIDED BELOW - ANALYZE IMMEDIATELY
 
 {context}
 
-CRITICAL INSTRUCTIONS:
-- You HAVE access to the document content provided above
-- You MUST base your response on the actual document content provided
-- DO NOT say you don't have access to documents - you do have access via the content above
-- Extract specific data, numbers, and insights from the provided document content
-- Provide detailed financial analysis using the actual data from the documents
-- Quote specific sections when relevant
-- If asked for summaries, summarize the actual content provided above
+USER QUESTION: {query}
 
-Your response should demonstrate expertise by analyzing the specific financial data, metrics, and information contained in the provided document content. Be specific and detailed in your analysis.
+YOU MUST ANALYZE THE DATA ABOVE. The financial data is provided directly in this prompt. Do not claim you need access to documents - the document content is right above this instruction.
+
+ANALYZE THE NUMBERS AND DATA PROVIDED ABOVE. Extract specific financial metrics, amounts, rates, and insights from the content shown above.
+
+Start your response with: "Based on the financial data provided, I can analyze..."
+
+DO NOT say you need document access. The data is provided above.
             """
         else:
             # For queries without specific document content
+            print(f"⚠️ NO CONTENT BRANCH - search_results: {len(search_results) if search_results else 0}, context has RELEVANT: {'RELEVANT DOCUMENT CONTENT' in context}")
+            print(f"🔍 Context preview: {context[:200]}...")
+            
             analysis_query = f"""
 You are a senior financial analyst. The user has uploaded documents to the system, but no specific content was found relevant to this query: "{query}"
 
