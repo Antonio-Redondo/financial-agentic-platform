@@ -31,7 +31,7 @@ from ..vector_store import VectorStore
 class WorkflowState(TypedDict):
     query: str
     context_documents: list
-    document_analysis: str
+    document_analysis_result: str
     risk_assessment: str
     market_analysis: str
     final_recommendation: str
@@ -144,15 +144,33 @@ class FinancialWorkflow:
         workflow.add_node("document_analysis", self.doc_agent.analyze_documents)
         workflow.add_node("parallel_analysis", self._parallel_analysis_coordinator)
         workflow.add_node("final_recommendations", self.recommendation_agent.generate_recommendations)
-        workflow.add_node("router", self.workflow_router)
 
-        # Set up the flow
-        workflow.set_entry_point("router")
+        # Set up the flow with conditional routing
+        workflow.set_entry_point("document_analysis")
         
-        # Router connections
-        workflow.add_edge("router", "document_analysis")
-        workflow.add_edge("document_analysis", "router")
-        workflow.add_edge("parallel_analysis", "router")
+        # Use conditional edges for proper routing
+        workflow.add_conditional_edges(
+            "document_analysis",
+            self.workflow_router,
+            {
+                "parallel_analysis": "parallel_analysis",
+                "final_recommendations": "final_recommendations",
+                "document_analysis": "document_analysis",
+                END: END
+            }
+        )
+        
+        workflow.add_conditional_edges(
+            "parallel_analysis", 
+            self.workflow_router,
+            {
+                "parallel_analysis": "parallel_analysis",
+                "final_recommendations": "final_recommendations", 
+                "document_analysis": "document_analysis",
+                END: END
+            }
+        )
+        
         workflow.add_edge("final_recommendations", END)
 
         return workflow.compile()
@@ -164,7 +182,7 @@ class FinancialWorkflow:
         initial_state = WorkflowState(
             query=query,
             context_documents=[],
-            document_analysis="",
+            document_analysis_result="",
             risk_assessment="",
             market_analysis="",
             final_recommendation="",
@@ -218,7 +236,7 @@ class FinancialWorkflow:
 ## 📄 Document Analysis
 **Confidence:** {confidence_scores.get('document_analysis', 0.5):.1%}
 
-{state.get('document_analysis', 'No document analysis available')}
+{state.get('document_analysis_result', 'No document analysis available')}
 
 ---
 

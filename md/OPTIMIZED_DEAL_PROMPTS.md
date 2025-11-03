@@ -27,7 +27,7 @@ give me the underwriter for deal 2025-002 - Good
 
 ### **Collateral Pool Analysis**
 ```
-"Analyze the collateral pools for deal 2025-003: agency type, mortgage characteristics, WAC, age, and face amount"
+"Analyze the collateral pools for deal 2025-003: agency type, mortgage characteristics, WAC, age, and face amount" - Very good
 "What are the geographic concentrations in deal 2025-004's collateral pools?"
 "Compare collateral quality metrics between deals 2025-001 and 2025-003"
 "Extract the pool factor and prepayment history for deal 2025-004's underlying assets" - Good 

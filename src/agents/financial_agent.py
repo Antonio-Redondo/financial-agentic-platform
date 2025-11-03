@@ -450,6 +450,11 @@ Provide comprehensive financial analysis addressing the question with your finan
             # Use the enhanced query for processing
             query_to_process = enhanced_query
             
+            print(f"🔍 Debug - use_multi_agent: {self.use_multi_agent}")
+            print(f"🔍 Debug - workflow exists: {self.workflow is not None}")
+            print(f"🔍 Debug - is_complex_query: {is_complex_query}")
+            print(f"🔍 Debug - enhanced_query: {enhanced_query}")
+            
             if self.use_multi_agent and self.workflow and is_complex_query:
                 print("🎯 Complex query detected - using multi-agent workflow")
                 workflow_result = self.workflow.execute_workflow(query_to_process)

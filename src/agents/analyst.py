@@ -27,7 +27,7 @@ class FinancialAnalyst:
                 model_kwargs={
                      "temperature": 0.8,     # Controls randomness
                      "maxTokenCount": 4000,  # Max response length
-                     "topP": 0.9            # Nucleus sampling (top 90%)
+                     "topP": 0.9            # next token probability, Nucleus sampling (top 90%), 
                 }
             )
             print("✅ Amazon Titan Text ready for financial analysis!")
