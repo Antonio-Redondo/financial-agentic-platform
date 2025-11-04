@@ -9,6 +9,9 @@ comprehensive document analysis for financial forecasting.
 # Standard library imports
 from typing import Dict, Any
 
+# Third-party imports
+from langsmith import traceable
+
 # Local imports
 from ..analyst import FinancialAnalyst
 from ..vector_store import VectorStore
@@ -22,6 +25,7 @@ class DocumentAnalysisAgent:
         self.analyst = FinancialAnalyst()
         self.agent_name = "Document Analysis Agent"
         
+    @traceable(name="document_analysis_agent", tags=["agent", "document-analysis", "financial-data"])
     def analyze_documents(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Analyze documents and extract key financial information"""
         try:
@@ -76,7 +80,7 @@ class DocumentAnalysisAgent:
             
             # Update state
             state["context_documents"] = relevant_docs
-            state["document_analysis"] = result.get("analysis", "")
+            state["document_analysis_result"] = result.get("analysis", "")
             state["confidence_scores"]["document_analysis"] = result.get("confidence", 0.8)
             state["agent_reasoning"]["document_analysis"] = "Analyzed documents for key financial indicators and data quality"
             state["current_step"] = "document_analysis_complete"
@@ -86,7 +90,7 @@ class DocumentAnalysisAgent:
         except Exception as e:
             error_msg = f"Document Analysis Error: {str(e)}"
             state["error_messages"].append(error_msg)
-            state["document_analysis"] = "Error in document analysis - proceeding with limited context"
+            state["document_analysis_result"] = "Error in document analysis - proceeding with limited context"
             state["confidence_scores"]["document_analysis"] = 0.3
             print(f"❌ {self.agent_name}: {error_msg}")
             

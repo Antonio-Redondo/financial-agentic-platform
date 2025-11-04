@@ -441,55 +441,55 @@ def load_custom_css():
         margin: 1rem 0;
     }
     
-    /* Enhanced Chat Styling with Simple Typography */
+    /* Enhanced Chat Styling with Compact Typography */
     .chat-message {
-        padding: 1.8rem;
-        border-radius: 16px;
-        margin-bottom: 1.5rem;
-        box-shadow: 0 3px 12px rgba(0,0,0,0.08);
+        padding: 1.2rem;
+        border-radius: 12px;
+        margin-bottom: 1rem;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.06);
         animation: fadeInOut 0.5s ease-out;
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-        line-height: 1.6;
+        line-height: 1.5;
     }
     
     .user-message {
         background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
-        border-left: 5px solid #3b82f6;
+        border-left: 4px solid #3b82f6;
         font-weight: 500;
     }
     
     .assistant-message {
         background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
-        border-left: 5px solid #10b981;
+        border-left: 4px solid #10b981;
         font-weight: 400;
     }
     
-    /* Simple Typography for Messages */
+    /* Compact Typography for Messages */
     .chat-message p {
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-        font-size: 1rem;
-        line-height: 1.6;
-        margin-bottom: 0.8rem;
+        font-size: 0.85rem;
+        line-height: 1.5;
+        margin-bottom: 0.6rem;
         color: #374151;
     }
     
     .chat-message h1, .chat-message h2, .chat-message h3 {
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
         font-weight: 600;
-        margin-top: 1.5rem;
-        margin-bottom: 0.8rem;
+        margin-top: 1rem;
+        margin-bottom: 0.5rem;
     }
     
-    .chat-message h1 { font-size: 1.8rem; color: #1f2937; }
-    .chat-message h2 { font-size: 1.5rem; color: #374151; }
-    .chat-message h3 { font-size: 1.3rem; color: #4b5563; }
+    .chat-message h1 { font-size: 1.1rem; color: #1f2937; }
+    .chat-message h2 { font-size: 1rem; color: #374151; }
+    .chat-message h3 { font-size: 0.9rem; color: #4b5563; }
     
     .chat-message code {
         font-family: 'JetBrains Mono', 'SF Mono', 'Monaco', 'Consolas', monospace;
         background: rgba(99, 102, 241, 0.1);
-        padding: 0.2rem 0.4rem;
-        border-radius: 4px;
-        font-size: 0.9rem;
+        padding: 0.15rem 0.3rem;
+        border-radius: 3px;
+        font-size: 0.75rem;
         font-weight: 500;
         letter-spacing: 0;
     }
@@ -497,12 +497,37 @@ def load_custom_css():
     .chat-message pre {
         font-family: 'JetBrains Mono', 'SF Mono', 'Monaco', 'Consolas', monospace;
         background: #f8fafc;
-        padding: 1rem;
-        border-radius: 8px;
-        border-left: 4px solid #e2e8f0;
+        padding: 0.8rem;
+        border-radius: 6px;
+        border-left: 3px solid #e2e8f0;
         overflow-x: auto;
-        font-size: 0.9rem;
-        line-height: 1.5;
+        font-size: 0.75rem;
+        line-height: 1.4;
+    }
+    
+    /* Compact List Styling */
+    .chat-message ul, .chat-message ol {
+        font-size: 0.85rem;
+        line-height: 1.4;
+        margin-bottom: 0.6rem;
+        padding-left: 1.2rem;
+    }
+    
+    .chat-message li {
+        margin-bottom: 0.3rem;
+    }
+    
+    /* Compact Table Styling */
+    .chat-message table {
+        font-size: 0.8rem;
+        border-collapse: collapse;
+        margin: 0.8rem 0;
+    }
+    
+    .chat-message th, .chat-message td {
+        padding: 0.4rem 0.6rem;
+        border: 1px solid #e5e7eb;
+        font-size: 0.8rem;
     }
     
     /* Typing Animation */

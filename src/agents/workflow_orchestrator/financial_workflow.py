@@ -18,6 +18,7 @@ from typing import Any, Annotated, Dict, List, TypedDict
 from langgraph.graph import StateGraph, END
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from typing_extensions import TypedDict
+from langsmith import traceable
 
 # Local imports
 from .document_analysis_agent import DocumentAnalysisAgent
@@ -79,6 +80,7 @@ class FinancialWorkflow:
         else:
             return "document_analysis"
 
+    @traceable(name="parallel_analysis_coordinator", tags=["parallel", "risk-assessment", "market-analysis"])
     def _parallel_analysis_coordinator(self, state: WorkflowState) -> WorkflowState:
         """Coordinate parallel execution of risk and market analysis"""
         try:
@@ -175,6 +177,7 @@ class FinancialWorkflow:
 
         return workflow.compile()
     
+    @traceable(name="multi_agent_workflow", tags=["workflow", "multi-agent", "financial-analysis"])
     def execute_workflow(self, query: str) -> Dict[str, Any]:
         """Execute the complete multi-agent workflow with parallel execution"""
         
@@ -195,26 +198,37 @@ class FinancialWorkflow:
         try:
             print(f"🚀 Starting multi-agent workflow with parallel execution for query: '{query}'")
             
-            # Execute the workflow
+            # Execute the workflow with tracing
             result = self.workflow.invoke(initial_state)
+            
+            # Calculate overall confidence
+            confidence_scores = result.get("confidence_scores", {})
+            overall_confidence = sum(confidence_scores.values()) / len(confidence_scores) if confidence_scores else 0.5
+            result["confidence_scores"]["overall"] = overall_confidence
             
             # Format the comprehensive response
             response = self._format_workflow_response(result)
+            
+            print(f"✅ Multi-agent workflow completed successfully (confidence: {overall_confidence:.1%})")
             
             return {
                 "success": True,
                 "response": response,
                 "workflow_state": result,
-                "confidence": result.get("confidence_scores", {}).get("overall", 0.5)
+                "confidence": overall_confidence,
+                "execution_mode": "multi-agent",
+                "agents_executed": list(result.get("agent_reasoning", {}).keys())
             }
             
         except Exception as e:
-            print(f"❌ Workflow execution error: {str(e)}")
+            print(f"❌ Multi-agent workflow failed: {str(e)}")
             return {
                 "success": False,
                 "response": f"Workflow execution error: {str(e)}",
                 "workflow_state": initial_state,
-                "confidence": 0.0
+                "confidence": 0.0,
+                "execution_mode": "multi-agent-failed",
+                "error": str(e)
             }
     
     def _format_workflow_response(self, state: WorkflowState) -> str:
@@ -223,68 +237,48 @@ class FinancialWorkflow:
         confidence_scores = state.get("confidence_scores", {})
         overall_confidence = confidence_scores.get("overall", 0.5)
         
-        response = f"""# 🏦 Multi-Agent Financial Analysis Results (Parallel Execution)
+        response = f"""## 🤖 Multi-Agent Analysis
 
-## 📊 Analysis Overview
 **Query:** {state['query']}
-**Overall Confidence:** {overall_confidence:.1%}
-**Analysis Date:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-**Execution Mode:** Parallel Risk + Market Analysis
+**Confidence:** {overall_confidence:.1%} | **Date:** {datetime.now().strftime('%m/%d %H:%M')}
 
----
+### 💡 Executive Summary
+{state.get('final_recommendation', 'No recommendations available')}
 
-## 📄 Document Analysis
-**Confidence:** {confidence_scores.get('document_analysis', 0.5):.1%}
+### � Analysis Details
+**Document Analysis:** {state.get('document_analysis_result', 'Not available')[:200]}{'...' if len(state.get('document_analysis_result', '')) > 200 else ''}
 
-{state.get('document_analysis_result', 'No document analysis available')}
+**Risk Assessment:** {state.get('risk_assessment', 'Not available')[:200]}{'...' if len(state.get('risk_assessment', '')) > 200 else ''}
 
----
+**Market Analysis:** {state.get('market_analysis', 'Not available')[:200]}{'...' if len(state.get('market_analysis', '')) > 200 else ''}
 
-## ⚡ Parallel Analysis Results
-
-### ⚠️ Risk Assessment  
-**Confidence:** {confidence_scores.get('risk_assessment', 0.5):.1%}
-
-{state.get('risk_assessment', 'No risk assessment available')}
-
-### 📈 Market Analysis
-**Confidence:** {confidence_scores.get('market_analysis', 0.5):.1%}
-
-{state.get('market_analysis', 'No market analysis available')}
-
----
-
-## 💡 Final Recommendations
-
-{state.get('final_recommendation', 'No final recommendations available')}
-
----
-
-## 🔍 Workflow Summary
-"""
+### � Agent Insights"""
         
-        # Add agent reasoning summary
+        # Add agent reasoning summary in consolidated format
         agent_reasoning = state.get("agent_reasoning", {})
         if agent_reasoning:
-            response += "\n### Agent Contributions:\n"
             for agent, reasoning in agent_reasoning.items():
-                response += f"- **{agent.replace('_', ' ').title()}:** {reasoning}\n"
+                agent_name = agent.replace('_', ' ').title()
+                response += f"\n• **{agent_name}:** {reasoning[:120]}{'...' if len(reasoning) > 120 else ''}"
         
-        # Add error messages if any
+        # Add confidence scores in compact format
+        confidence_scores = state.get("confidence_scores", {})
+        if confidence_scores:
+            response += f"\n\n**Confidence Metrics:** "
+            metrics = [f"{metric.replace('_', ' ').title()}: {score:.0%}" for metric, score in confidence_scores.items()]
+            response += " | ".join(metrics)
+        
+        # Add error messages if any (compact)
         error_messages = state.get("error_messages", [])
         if error_messages:
-            response += "\n### ⚠️ Workflow Warnings:\n"
-            for error in error_messages:
-                response += f"- {error}\n"
+            response += f"\n\n**Warnings:** {'; '.join(error_messages[:2])}"
         
-        # Add document sources
+        # Add top source documents in compact format
         context_docs = state.get("context_documents", [])
         if context_docs:
-            response += f"\n### 📚 Source Documents ({len(context_docs)} documents analyzed):\n"
-            for i, doc in enumerate(context_docs[:5], 1):  # Show top 5
-                filename = doc.get('metadata', {}).get('filename', 'Unknown')
-                relevance = doc.get('similarity_score', 0.0)
-                response += f"{i}. **{filename}** (Relevance: {relevance:.1%})\n"
+            response += f"\n\n**Sources:** "
+            sources = [f"{doc.get('metadata', {}).get('filename', 'Unknown')} ({doc.get('similarity_score', 0.0):.0%})" for doc in context_docs[:3]]
+            response += " | ".join(sources)
         
         return response
 

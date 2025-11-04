@@ -10,6 +10,9 @@ summary, quantitative projections, and implementation roadmap.
 from typing import Dict, Any
 from datetime import datetime
 
+# Third-party imports
+from langsmith import traceable
+
 # Local imports
 from ..analyst import FinancialAnalyst
 
@@ -21,11 +24,12 @@ class RecommendationAgent:
         self.analyst = FinancialAnalyst()
         self.agent_name = "Recommendation Agent"
         
+    @traceable(name="recommendation_agent", tags=["agent", "final-recommendations", "synthesis"])
     def generate_recommendations(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Synthesize all analyses into final recommendations"""
         try:
             query = state["query"]
-            doc_analysis = state.get("document_analysis", "")
+            doc_analysis = state.get("document_analysis_result", "")
             risk_assessment = state.get("risk_assessment", "")
             market_analysis = state.get("market_analysis", "")
             

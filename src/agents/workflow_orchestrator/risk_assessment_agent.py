@@ -9,6 +9,9 @@ risk metrics and probability assessments for financial forecasting.
 # Standard library imports
 from typing import Dict, Any
 
+# Third-party imports
+from langsmith import traceable
+
 # Local imports
 from ..analyst import FinancialAnalyst
 
@@ -20,11 +23,12 @@ class RiskAssessmentAgent:
         self.analyst = FinancialAnalyst()
         self.agent_name = "Risk Assessment Agent"
         
+    @traceable(name="risk_assessment_agent", tags=["agent", "risk-assessment", "financial-risk"])
     def assess_risk(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Perform comprehensive risk assessment"""
         try:
             query = state["query"]
-            doc_analysis = state.get("document_analysis", "")
+            doc_analysis = state.get("document_analysis_result", "")
             
             risk_prompt = f"""You are a Risk Assessment Specialist for financial forecasting and mortgage-backed securities.
             

@@ -113,48 +113,54 @@ class FinancialAgent:
         
     @trace_financial_operation("search_and_analyze")
     def search_and_analyze(self, query: str) -> str:
-        """Search documents and analyze the results using multi-agent workflow when possible"""
+        """Search documents and analyze the results using single-agent approach only"""
         start_time = time.time()
         
         # Log query to LangSmith
         langsmith_manager.trace_query(
             query=query,
             response="",  # Will be updated after response
-            metadata={"agent_mode": "multi" if self.use_multi_agent else "single", "query_type": "search_and_analyze"}
+            metadata={"agent_mode": "single", "query_type": "search_and_analyze"}
         )
         
         print(f"🔍 Processing query: {query}")
         
-        # Use multi-agent workflow if available
-        if self.use_multi_agent and self.workflow:
-            try:
-                print("🤖 Using LangGraph multi-agent workflow")
-                workflow_result = self.workflow.execute_workflow(query)
-                
-                if workflow_result.get("success", False):
-                    latency_ms = (time.time() - start_time) * 1000
-                    
-                    # Log successful workflow to LangSmith
-                    langsmith_manager.trace_llm_response(
-                        prompt=query,
-                        response=workflow_result.get("response", ""),
-                        model_name="multi-agent-workflow",
-                        latency_ms=latency_ms
-                    )
-                    
-                    print(f"✅ Multi-agent workflow completed successfully (confidence: {workflow_result.get('confidence', 0):.1%})")
-                    return workflow_result.get("response", "No response generated")
-                else:
-                    print(f"❌ Multi-agent workflow failed: {workflow_result.get('response', 'Unknown error')}")
-                    print("🔄 Falling back to single-agent mode")
-                    
-            except Exception as e:
-                print(f"❌ Multi-agent workflow error: {e}")
-                print("🔄 Falling back to single-agent mode")
-        
-        # Fallback to original single-agent logic
+        # Always use single-agent analysis logic (multi-agent decision is made in process_query)
         print("🔄 Using single-agent mode")
         return self._single_agent_analysis(query)
+    
+    def _execute_multi_agent_workflow(self, query: str) -> Dict:
+        """Execute multi-agent workflow for complex queries"""
+        start_time = time.time()
+        
+        try:
+            print("🤖 Using LangGraph multi-agent workflow")
+            workflow_result = self.workflow.execute_workflow(query)
+            
+            if workflow_result.get("success", False):
+                latency_ms = (time.time() - start_time) * 1000
+                
+                # Log successful workflow to LangSmith
+                langsmith_manager.trace_llm_response(
+                    prompt=query,
+                    response=workflow_result.get("response", ""),
+                    model_name="multi-agent-workflow",
+                    latency_ms=latency_ms
+                )
+                
+                print(f"✅ Multi-agent workflow completed successfully (confidence: {workflow_result.get('confidence', 0):.1%})")
+                return {
+                    "success": True,
+                    "response": workflow_result.get("response", "No response generated"),
+                    "confidence": workflow_result.get("confidence", 0.5)
+                }
+            else:
+                print(f"❌ Multi-agent workflow failed: {workflow_result.get('response', 'Unknown error')}")
+                return {"success": False, "error": workflow_result.get('response', 'Unknown error')}
+                
+        except Exception as e:
+            print(f"❌ Multi-agent workflow error: {e}")
+            return {"success": False, "error": str(e)}
     
     def _single_agent_analysis(self, query: str) -> str:
         """Original single-agent analysis logic (fallback)"""
@@ -429,7 +435,8 @@ Provide comprehensive financial analysis addressing the question with your finan
             enhanced_query = self._build_contextual_query_enhanced(query)
             
             # Check for complex analysis keywords that benefit from multi-agent approach
-            complex_keywords = ['risk', 'market', 'forecast', 'analysis', 'assessment', 'recommendation', 'strategy', 'prepayment', 'portfolio']
+            # Use more specific keywords to avoid false positives
+            complex_keywords = ['risk assessment', 'market analysis', 'forecast', 'investment strategy', 'recommendation', 'prepayment modeling', 'portfolio optimization', 'stress testing']
             is_complex_query = any(keyword in enhanced_query.lower() for keyword in complex_keywords)
             
             # Log query processing to LangSmith
@@ -457,7 +464,7 @@ Provide comprehensive financial analysis addressing the question with your finan
             
             if self.use_multi_agent and self.workflow and is_complex_query:
                 print("🎯 Complex query detected - using multi-agent workflow")
-                workflow_result = self.workflow.execute_workflow(query_to_process)
+                workflow_result = self._execute_multi_agent_workflow(query_to_process)
                 
                 if workflow_result.get("success", False):
                     response = workflow_result.get("response", "No response generated")

@@ -9,6 +9,9 @@ and market outlook for financial forecasting.
 # Standard library imports
 from typing import Dict, Any
 
+# Third-party imports
+from langsmith import traceable
+
 # Local imports
 from ..analyst import FinancialAnalyst
 
@@ -20,11 +23,12 @@ class MarketAnalysisAgent:
         self.analyst = FinancialAnalyst()
         self.agent_name = "Market Analysis Agent"
         
+    @traceable(name="market_analysis_agent", tags=["agent", "market-analysis", "economic-factors"])
     def analyze_market(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Analyze market conditions and economic factors"""
         try:
             query = state["query"]
-            doc_analysis = state.get("document_analysis", "")
+            doc_analysis = state.get("document_analysis_result", "")
             risk_assessment = state.get("risk_assessment", "")
             
             market_prompt = f"""You are a Market Analysis Specialist focusing on mortgage markets and macroeconomic factors.
