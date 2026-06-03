@@ -1,4 +1,4 @@
-# 🏦 Financial Forecast AI
+# 🏦 Financial Agentic Platform
 
 > **Advanced Prepayment Analytics & Risk Assessment Platform**  
 > *Powered by Amazon Titan Models & RAG Architecture*
