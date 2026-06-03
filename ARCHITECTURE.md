@@ -1,4 +1,4 @@
-# Financial Forecast AI - Architecture Diagram
+# Financial Agentic Platform - Architecture Diagram
 
 ## 🏗️ System Architecture Overview
 
