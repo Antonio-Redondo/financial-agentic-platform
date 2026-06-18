@@ -1,0 +1,12 @@
+{
+  "fast_model": "llama3.2:1b",
+  "strong_model": "qwen2.5:3b",
+  "route": {
+    "simple": "qwen2.5:3b",
+    "complex": "llama3.2:1b"
+  },
+  "quality_tolerance": 0.4,
+  "rationale": "simple: qwen2.5:3b (\u0394judge +1.10 > 0.4); complex: llama3.2:1b (\u0394judge +0.10 \u2264 0.4)",
+  "source": "evals.run_evals",
+  "generated_at": "2026-06-18 09:19:02"
+}

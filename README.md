@@ -1,523 +1,213 @@
 # 🏦 Financial Agentic Platform
 
-> **Advanced Prepayment Analytics & Risk Assessment Platform**  
-> *Powered by Amazon Titan Models & RAG Architecture*
-
-<div align="center">
-
-![Python](https://img.shields.io/badge/Python-3.11+-blue?style=for-the-badge&logo=python)
-![AWS](https://img.shields.io/badge/AWS-Bedrock-orange?style=for-the-badge&logo=amazon-aws)
-![Streamlit](https://img.shields.io/badge/Streamlit-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-316192?style=for-the-badge&logo=postgresql&logoColor=white)
-
-</div>
+> **Advanced Prepayment Analytics & Risk Assessment Platform**
+> *A multi-agent RAG app that runs fully locally with [Ollama](https://ollama.com) + [pgvector](https://github.com/pgvector/pgvector) — no cloud, no API keys.*
 
 ---
 
-## ✨ Key Features
+## 🖥️ Deploy Locally
 
-```
-🧠 AI-Powered Analysis     📄 Multi-Format Support     💬 Enhanced Chat Interface
-├─ Amazon Titan Models    ├─ PDF Documents            ├─ Bigger Input Area
-├─ RAG Architecture       ├─ Excel Spreadsheets       ├─ Smart Suggestions
-├─ Financial Expertise    ├─ Word Documents           ├─ Quick Actions
-└─ Real-time Processing   └─ PowerPoint & More        └─ Modern Design
+The app runs **100% offline**: local LLMs via Ollama + a local Postgres/pgvector
+database for persistent chunks, embeddings, and metadata. No cloud, no API keys.
 
-🔍 Vector Search          ⚡ Performance               🛡️ Security
-├─ PostgreSQL + pgvector  ├─ Sub-second Responses     ├─ AWS IAM Integration
-├─ Semantic Similarity    ├─ Scalable Architecture    ├─ VPC Network Isolation
-├─ Contextual Retrieval   ├─ Local Development        ├─ Encrypted Storage
-└─ Intelligent Ranking    └─ Cloud-Ready Deployment   └─ Access Controls
-```
-
-## 📋 Prerequisites
-
-<table>
-<tr>
-<td width="50%">
-
-**🐍 Development Environment**
-- Python 3.11+ 
-- Git for version control
-- VS Code (recommended)
-- Virtual environment support
-
-</td>
-<td width="50%">
-
-**☁️ AWS Services**
-- AWS Account with Bedrock access
-- IAM permissions configured
-- Optional: PostgreSQL with pgvector
-- AWS CLI configured
-
-</td>
-</tr>
-</table>
-
-## 🚀 Quick Start Guide
-
-### 1️⃣ **Clone & Setup**
+**Prerequisites:** Python 3.11+, [Ollama](https://ollama.com/download), and Docker
+(or an existing Postgres with the pgvector extension available).
 
 ```bash
-# Clone the repository
-git clone https://github.com/Antonio-Redondo/financial-forecast-ai.git
-cd financial-forecast-ai
+# 1️⃣ Pull the models (Ollama). The router uses two chat models by default.
+ollama pull llama3.2:1b           # fast chat model (CPU-friendly)
+ollama pull qwen2.5:3b            # stronger chat model (used by the router)
+ollama pull mxbai-embed-large     # embeddings — 1024-dim, matches $EMBEDDING_DIM
+ollama serve                       # ensure the server is running (often already is)
 
-# Create virtual environment
-python -m venv .venv
+# 2️⃣ Start Postgres + pgvector (Docker is easiest — the image bundles pgvector).
+docker run -d --name financial-rag-pg \
+  -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=financial_rag \
+  -p 5432:5432 pgvector/pgvector:pg16
+#    The app auto-creates the `vector` extension + tables on first run, so no
+#    manual SQL is needed. (Using your own Postgres? Just make sure the pgvector
+#    extension is installed and DATABASE_URL points at it.)
 
-# Activate virtual environment
-.venv\Scripts\activate          # Windows
-source .venv/bin/activate       # macOS/Linux
-```
+# 3️⃣ Configure environment (copy the template; adjust DATABASE_URL if needed).
+cp .env.example .env
 
-### 2️⃣ **Install Dependencies**
-
-```bash
-# Install all required packages
+# 4️⃣ Install dependencies and launch.
 pip install -r requirements.txt
+streamlit run src/ui/app.py --server.port 8516
 
-# Additional document processing libraries (auto-installed)
-pip install openpyxl xlrd beautifulsoup4 python-pptx markdown
+# 🌐 Open: http://localhost:8516
 ```
 
-### 3️⃣ **Environment Configuration**
+On first run the app creates the `documents` + `document_chunks` tables (and the
+`vector` extension), then scans `./data/documents/` for files to ingest.
 
-Create a `.env` file in the project root:
+> 💡 **Don't want the router?** Set `MODEL_ROUTER_ENABLED=false` in `.env` and only
+> `llama3.2:1b` is required — `qwen2.5:3b` is needed only while routing is on.
+
+### Configuration (`.env`)
 
 ```env
-# AWS Configuration (Required)
-AWS_ACCESS_KEY_ID=your_access_key_here
-AWS_SECRET_ACCESS_KEY=your_secret_key_here
-AWS_REGION=us-east-1
+# Models
+OLLAMA_MODEL=llama3.2:1b                 # model used when routing is OFF
+OLLAMA_BASE_URL=http://localhost:11434
+EMBEDDING_MODEL=mxbai-embed-large
+EMBEDDING_DIM=1024
 
-# Database Configuration (Optional - uses local storage by default)
-POSTGRES_CONNECTION=your_postgres_endpoint
-PGVECTOR_CONNECTION_STRING=postgresql://user:pass@host:5432/db
+# Model router (data-driven; see "Evals & Model Router" below)
+MODEL_ROUTER_ENABLED=true
+ROUTER_FAST_MODEL=llama3.2:1b
+ROUTER_STRONG_MODEL=qwen2.5:3b
 
-# Development Mode (Recommended for local testing)
-USE_LOCAL_STORAGE=true
+# Storage + ingestion
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/financial_rag
+DOCUMENTS_DIR=./data/documents
 ```
 
-### 4️⃣ **Launch Application**
-
-```bash
-# Start the Financial Forecast AI
-streamlit run src/ui/app.py --server.port 8516
-
-# 🌐 Open in browser: http://localhost:8516
-```
-
-## 💻 How to Use
-
-<div align="center">
-
-### 📱 **Modern Chat Interface**
-
-</div>
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  💭 Ask Your Financial Question                                │
-│                                                                 │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │ 💡 Ask about prepayment rates, risk analysis, metrics... │   │
-│  │                                                         │   │
-│  │                                                         │   │
-│  └─────────────────────────────────────────────────────────┘   │
-│                                                                 │
-│  📊 Analyze Trends    ⚠️ Risk Assessment    📋 Summarize Docs   │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### 🎯 **Step-by-Step Workflow**
-
-| Step | Action | Description |
-|------|--------|-------------|
-| **1** | 📁 **Upload Documents** | Drag & drop PDF, Excel, Word, PowerPoint files |
-| **2** | 🔄 **Auto-Processing** | AI extracts and indexes content with vector embeddings |
-| **3** | 💬 **Ask Questions** | Use natural language or click suggestion chips |
-| **4** | 🧠 **AI Analysis** | Amazon Titan models analyze with RAG retrieval |
-| **5** | 📊 **View Results** | Get detailed insights with data visualizations |
-
-### 📄 **Supported Document Formats**
-
-```
-📕 PDF Files          📊 Spreadsheets       📝 Text Documents     🌐 Web Formats
-├─ Financial Reports  ├─ Excel (.xlsx/.xls) ├─ Word (.docx/.doc)  ├─ HTML/XML
-├─ Prospectuses       ├─ CSV Data           ├─ Plain Text (.txt)  ├─ JSON Data
-├─ Research Papers    └─ Data Tables        ├─ Rich Text (.rtf)   └─ Markdown
-└─ Legal Documents                          └─ Markdown (.md)
-
-📽️ Presentations
-├─ PowerPoint (.pptx/.ppt)
-└─ Slide Content Extraction
-```
-
-## 🔧 AWS Bedrock Configuration
-
-<div align="center">
-
-### 🚀 **3-Step Setup Process**
-
-</div>
-
-```
-Step 1: IAM Setup    →    Step 2: Model Access    →    Step 3: Verification
-┌─────────────────┐       ┌─────────────────────┐       ┌─────────────────┐
-│ 👤 Create User  │  ───► │ 🧠 Request Models   │  ───► │ ✅ Test & Verify │
-│ 🔑 Add Policies │       │ 📝 Use Case Form    │       │ 🎯 Ready to Use │
-│ 💾 Get Creds    │       │ ⏰ Wait Approval    │       │ 🔄 Start App     │
-└─────────────────┘       └─────────────────────┘       └─────────────────┘
-```
-
-### 🎯 **Option A: Quick Setup (Recommended)**
-
-1. **Deploy Complete Infrastructure** *(Automated)*
-   ```bash
-   # Creates VPC, database, IAM permissions - everything needed
-   aws cloudformation create-stack \
-     --stack-name financial-forecast-complete \
-     --template-body file://infra/cloudformation.yaml \
-     --capabilities CAPABILITY_IAM \
-     --parameters ParameterKey=Environment,ParameterValue=dev \
-                  ParameterKey=UserName,ParameterValue=Antonio
-   ```
-
-2. **Request Model Access** *(Manual)*
-   ```
-   🌐 Go to: AWS Console → Bedrock → Model Access
-   📍 Region: us-east-1
-   🎯 Model: Amazon Titan Text Large
-   📝 Use Case: Financial analysis and prepayment forecasting
-   ⏰ Wait: ~15 minutes for approval
-   ```
-
-### 🛠️ **Option B: Manual Setup**
-
-<details>
-<summary><b>🔧 Click to expand manual configuration steps</b></summary>
-
-#### **Step 1: Create IAM Policy**
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "bedrock:InvokeModel",
-        "bedrock:InvokeModelWithResponseStream",
-        "bedrock:ListFoundationModels"
-      ],
-      "Resource": "*"
-    }
-  ]
-}
-```
-
-#### **Step 2: Attach to User**
-```bash
-# Create user and attach policy
-aws iam create-user --user-name FinancialForecastUser
-aws iam attach-user-policy --user-name FinancialForecastUser --policy-arn YOUR_POLICY_ARN
-aws iam create-access-key --user-name FinancialForecastUser
-```
-
-</details>
-
-### ✅ **Verification Checklist**
-
-| ✓ | Component | Status | Command |
-|---|-----------|---------|---------|
-| □ | **AWS CLI** | Configured | `aws sts get-caller-identity` |
-| □ | **Credentials** | Valid | Check `.env` file |
-| □ | **Region** | us-east-1 | `aws configure get region` |
-| □ | **Bedrock Models** | Available | `aws bedrock list-foundation-models` |
-| □ | **Permissions** | Working | Launch app and test |
-
-### 🔍 **Troubleshooting Guide**
-
-```
-❌ Error: "ResourceNotFoundException"
-   └─ Solution: Request model access in Bedrock console
-
-❌ Error: "AccessDenied" 
-   └─ Solution: Check IAM permissions and policies
-
-❌ Error: "Invalid credentials"
-   └─ Solution: Verify AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
-
-❌ Error: "Region not supported"
-   └─ Solution: Use us-east-1 region for Bedrock
-```
-
-## ☁️ AWS Infrastructure Deployment
-
-<div align="center">
-
-### 🏗️ **Two Deployment Options**
-
-</div>
-
-```
-🏠 Local Development              🏭 Full AWS Deployment
-┌─────────────────────────┐      ┌─────────────────────────┐
-│ ✅ Streamlit Server     │      │ 🚀 Container Platform   │
-│ ✅ Local File Storage   │      │ 🗄️ RDS PostgreSQL      │
-│ ✅ AWS Bedrock API      │      │ 🔒 VPC Network          │
-│ ✅ IAM Permissions      │      │ ⚖️ Load Balancer        │
-│ 💰 Low Cost            │      │ 📈 Auto Scaling         │
-│ 🚀 Fast Setup          │      │ 🛡️ Production Security  │
-└─────────────────────────┘      └─────────────────────────┘
-```
-
-### 🚀 **Complete Infrastructure Deployment** *(Production)*
-
-```bash
-# 1️⃣ Deploy unified infrastructure (VPC + Database + IAM)
-aws cloudformation create-stack \
-  --stack-name financial-forecast-complete \
-  --template-body file://infra/cloudformation.yaml \
-  --capabilities CAPABILITY_IAM \
-  --parameters ParameterKey=Environment,ParameterValue=dev \
-               ParameterKey=UserName,ParameterValue=Antonio
-
-# 2️⃣ Wait for deployment completion
-aws cloudformation wait stack-create-complete \
-  --stack-name financial-forecast-complete
-
-# 3️⃣ Get database connection details
-aws cloudformation describe-stacks \
-  --stack-name financial-forecast-complete \
-  --query "Stacks[0].Outputs"
-```
-
-### 🏠 **Local Development Mode** *(Current & Recommended)*
-
-```bash
-# ✅ Current setup - just run the app locally!
-streamlit run src/ui/app.py --server.port 8516
-
-# 🌐 Access: http://localhost:8516
-```
-
-<div align="center">
-
-**📝 Infrastructure**: The application uses a **single consolidated CloudFormation template** for all AWS resources.  
-**🚀 Development**: Run locally with file-based storage, deploy to AWS for production.
-
-</div>
-
-### 📊 **Deployment Comparison**
-
-| Feature | 🏠 Local Dev | 🏭 AWS Production |
-|---------|--------------|-------------------|
-| **Setup Time** | ⚡ 5 minutes | ⏰ 30 minutes |
-| **Cost** | 💰 $0.02/query | 💰💰 $50+/month |
-| **Scalability** | 👤 Single user | 👥 Multi-user |
-| **Database** | 📁 Local files | 🗄️ PostgreSQL |
-| **Security** | 🔐 Basic | 🛡️ Enterprise |
-| **Maintenance** | ✅ None | 🔧 Regular |
-
-### 🔄 **Current Architecture**
-
-```
-Local Machine                    AWS Services
-┌─────────────────┐             ┌─────────────────┐
-│ 🖥️ Streamlit App │ ────────── │ 🧠 Bedrock API  │
-│ 📁 File Storage  │             │ 🤖 Titan Models │
-│ 🐍 Python Code  │             │ 🔑 IAM Access   │
-└─────────────────┘             └─────────────────┘
-```
-
-## 🏗️ Project Architecture
-
-### 📂 **Directory Structure**
-
-```
-financial-forecast-ai/
-├── 📁 src/                          # Source code
-│   ├── 🤖 agents/                   # AI Agent System
-│   │   ├── financial_agent.py       # Main orchestrator
-│   │   ├── analyst.py              # Amazon Titan interface
-│   │   └── vector_store.py         # Document management
-│   ├── 🔧 core/                    # Core business logic  
-│   └── 🎨 ui/                      # Modern Streamlit interface
-│       └── app.py                  # Enhanced chat UI
-├── 🏗️ infra/                       # AWS Infrastructure
-│   ├── cloudformation.yaml        # Complete deployment template
-│   └── README.md                  # Infrastructure guide
-├── 📋 requirements.txt             # Python dependencies
-├── 🔧 .env                        # Environment config
-├── 🐳 Dockerfile                  # Container setup
-└── 📖 README.md                   # This documentation
-```
-
-### 🎯 **Component Overview**
-
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                           🧠 FINANCIAL FORECAST AI SYSTEM                      │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│  🎨 UI Layer              🤖 Agent Layer             ☁️ AWS Services            │
-│  ┌─────────────────┐     ┌─────────────────────┐    ┌─────────────────────┐    │
-│  │ • Streamlit UI  │────▶│ • Financial Agent   │───▶│ • Amazon Bedrock    │    │
-│  │ • Chat Interface│     │ • AI Analyst        │    │ • Titan Models      │    │
-│  │ • File Upload   │     │ • Vector Store      │    │ • PostgreSQL + RDS │    │
-│  │ • Visualizations│     │ • RAG Pipeline      │    │ • IAM Security      │    │
-│  └─────────────────┘     └─────────────────────┘    └─────────────────────┘    │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
-
-### 🔄 **Data Flow**
-
-```
-📄 Document Upload → 🔍 Processing → 🧠 AI Analysis → 💡 Insights
-
-┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│ 📁 Files    │───▶│ ✂️ Chunking │───▶│ 🔢 Vectors  │───▶│ 💾 Storage  │
-│ Multi-format│    │ Text Split  │    │ Embeddings  │    │ Local/Cloud │
-└─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘
-                                               │
-┌─────────────┐    ┌─────────────┐    ┌─────────────┐    │
-│ 💬 Response │◀───│ 🧠 AI Model │◀───│ 🔍 Retrieval│◀───┘
-│ Formatted   │    │ Titan Text  │    │ Similarity  │
-└─────────────┘    └─────────────┘    └─────────────┘
-```
-
-### 🛠️ **Technology Stack**
-
-<table>
-<tr>
-<td width="25%"><b>🎨 Frontend</b></td>
-<td width="25%"><b>🤖 AI/ML</b></td>
-<td width="25%"><b>💾 Data</b></td>
-<td width="25%"><b>☁️ Infrastructure</b></td>
-</tr>
-<tr>
-<td>
-
-- Streamlit
-- CSS/HTML
-- JavaScript
-- Responsive UI
-
-</td>
-<td>
-
-- AWS Bedrock
-- Amazon Titan
-- LangChain
-- LangGraph
-
-</td>
-<td>
-
-- PostgreSQL
-- pgvector
-- Local Storage
-- Vector Search
-
-</td>
-<td>
-
-- AWS VPC
-- CloudFormation
-- IAM Roles
-- Docker Ready
-
-</td>
-</tr>
-</table>
-
-## 🎯 Key Use Cases
-
-<div align="center">
-
-### 💼 **Financial Analysis Scenarios**
-
-</div>
-
-| 🎯 Use Case | 📄 Input | 🔍 Analysis | 💡 Output |
-|-------------|----------|-------------|-----------|
-| **Prepayment Risk** | Mortgage pool data | Historical trends + AI modeling | Risk scores & forecasts |
-| **Credit Assessment** | Financial statements | Multi-factor analysis | Credit ratings & recommendations |
-| **Yield Analysis** | Bond prospectuses | Cash flow modeling | Expected returns & duration |
-| **Market Research** | Industry reports | Competitive analysis | Market insights & opportunities |
-| **Compliance Check** | Regulatory docs | Rule interpretation | Compliance status & gaps |
-| **Investment Decision** | Due diligence files | Comprehensive review | Investment recommendations |
+> 💡 **Switching embedding models.** Changing `EMBEDDING_MODEL` requires
+> changing `EMBEDDING_DIM` to match (e.g. `nomic-embed-text` is 768).
+> Drop the `document_chunks` table so it can be recreated with the new
+> dimension, then re-ingest.
 
 ---
 
-## 🤝 Contributing
+## 📥 Where Do My Documents Go?
 
-<div align="center">
+There are **two equivalent ways** to feed the pipeline; both end up in pgvector.
 
-**🌟 We welcome contributions to improve Financial Forecast AI!**
+### Option A — drop files into the ingestion folder (recommended)
 
-</div>
-
-### 🚀 **Development Workflow**
-
-```bash
-# 1️⃣ Fork & Clone
-git clone https://github.com/yourusername/financial-forecast-ai.git
-cd financial-forecast-ai
-
-# 2️⃣ Create Feature Branch
-git checkout -b feature/your-feature-name
-
-# 3️⃣ Make Changes & Test
-streamlit run src/ui/app.py --server.port 8516
-
-# 4️⃣ Commit & Push
-git add .
-git commit -m "✨ Add your feature description"
-git push origin feature/your-feature-name
-
-# 5️⃣ Create Pull Request
-# Visit GitHub and create a PR with description
+```text
+./data/documents/
 ```
 
-### 📋 **Contribution Areas**
+Anything placed here is auto-ingested on the next app startup (or when you
+click **🔄 Re-scan documents folder** in the sidebar). Files are deduplicated
+by content hash + source path, so:
 
-- 🐛 **Bug Fixes**: Improve stability and reliability
-- ✨ **Features**: New AI capabilities or UI enhancements
-- 📚 **Documentation**: Better guides and examples
-- 🔧 **Infrastructure**: AWS deployment improvements
-- 🧪 **Testing**: Unit tests and integration tests
-- 🎨 **UI/UX**: Enhanced user interface design
+- Same file unchanged → skipped (no re-embedding).
+- Same path, edited content → old chunks dropped, new ones embedded.
+- Subfolders are walked recursively.
+
+### Option B — use the upload UI in the sidebar
+
+Uploads are saved into `./data/documents/` first, then ingested via the same
+pipeline. You can leave files there for the next startup; nothing is lost on
+restart.
+
+### What gets stored
+
+| Table | Columns |
+| --- | --- |
+| `documents` | `id`, `source_path` (unique), `filename`, `content_hash`, `file_size`, `file_extension`, `uploaded_at`, `metadata` (JSONB) |
+| `document_chunks` | `id`, `document_id` (FK), `chunk_index`, `content`, `embedding` (`vector(1024)`), `metadata` (JSONB) |
+
+An HNSW cosine-similarity index (`vector_cosine_ops`) on `document_chunks.embedding`
+backs the retriever.
 
 ---
 
-## 📜 License & Credits
+## 🧠 How It Works — Multi-Agent Graph
 
-<div align="center">
+This is a genuine agentic workflow built on **LangGraph**, not a single LLM call.
+Specialized agents collaborate to route, retrieve, and answer:
 
-**📄 License**: MIT License - see [LICENSE](LICENSE) file for details
+```
+   🧭 Planner ──(general)──────────────┐
+      │ (document)                     │
+      ▼                                ▼
+   🔎 Retriever ─────────────────▶ ✍️ Analyst ──▶ ✅ Finalize
+```
 
-**🏦 Financial Forecast AI** - *Built with ❤️ for the financial community*
+- **Planner** — classifies the request on two axes in a single LLM call:
+  (1) does it need the user's uploaded documents vs. general knowledge, and
+  (2) is it **SIMPLE** or **COMPLEX** (used by the model router).
+- **Retriever** — hybrid search over `document_chunks` in pgvector (dense cosine +
+  Postgres full-text, fused with Reciprocal Rank Fusion) returning the top-k matches.
+- **Analyst** — writes the answer (streamed token-by-token to the UI), grounded
+  in the retrieved context when present, using the model the router selected.
 
----
+## ⚖️ Evals & Model Router
 
-<table>
-<tr>
-<td align="center">
-<img src="https://img.shields.io/badge/Powered%20by-Amazon%20Titan-FF9900?style=for-the-badge&logo=amazon-aws" />
-</td>
-<td align="center">
-<img src="https://img.shields.io/badge/Built%20with-Streamlit-FF4B4B?style=for-the-badge&logo=streamlit" />
-</td>
-<td align="center">
-<img src="https://img.shields.io/badge/Vector%20DB-PostgreSQL-316192?style=for-the-badge&logo=postgresql" />
-</td>
-</tr>
-</table>
+Different models trade quality for speed. Rather than guess, the app **measures**
+each model and routes per query.
 
-**⭐ Star this repo if you find it useful!** | **🐛 Report issues** | **💡 Suggest features**
+**Run the evals** (needs Ollama; not Postgres):
 
-</div>
+```bash
+ollama pull llama3.2:1b && ollama pull qwen2.5:3b
+python -m evals.run_evals          # add --limit 6 for a quick smoke run
+```
+
+This runs a curated set of financial queries ([evals/dataset.py](evals/dataset.py))
+through each model and scores every answer two ways:
+
+- **Key-point coverage** — deterministic: fraction of expected concepts present.
+- **LLM-as-judge** — a 1–5 correctness/relevance rating from the strongest model.
+
+…plus **latency**. Results land in `evals/results/` (`summary.md`,
+`results_<ts>.json`) and the harness derives **`policy.json`**: for each
+complexity bucket it keeps the fast model unless the strong model's judged
+quality gain exceeds `QUALITY_TOLERANCE`. The mapping is **whatever the data
+says** — it is not assumed to be "simple→fast, complex→strong".
+
+**The router** ([src/agents/router.py](src/agents/router.py)) reads `policy.json`
+(falling back to the `ROUTER_*` env vars) and the planner's SIMPLE/COMPLEX label
+to pick the model per query at **no extra latency** (the classification rides on
+the planner call that already runs). Toggle it live with **🧭 Auto model routing**
+in the sidebar; the answer footer and trace show which model replied.
+
+> 📊 **Re-run the evals on your machine** to generate a policy tuned to your
+> hardware and models — the committed `policy.json` reflects one CPU run and may
+> differ from yours (small local models can score unintuitively per bucket).
+
+## 📄 Supported Document Formats
+
+Upload financial documents (or drop them into `./data/documents/`) and ask
+questions about them:
+
+```
+📕 PDF          📊 Excel (.xlsx/.xls), CSV      📝 Word (.docx), Text, RTF, Markdown
+📽️ PowerPoint  🌐 HTML/XML                      📋 JSON
+```
+
+## 🏗️ Project Structure
+
+```
+financial-agentic-platform/
+├── data/
+│   └── documents/             # 📥 Drop folder — auto-ingested on startup
+├── src/
+│   ├── agents/
+│   │   ├── financial_agent.py # Entry point — runs the multi-agent graph
+│   │   ├── graph.py           # LangGraph workflow (planner → retriever → analyst)
+│   │   ├── router.py          # Model router (complexity → fast/strong model)
+│   │   ├── retrieval.py       # Rewrite / multi-query / HyDE / rerank helpers
+│   │   ├── llm.py             # Shared Ollama (ChatOllama) factory
+│   │   └── vector_store.py    # pgvector-backed chunk/embedding store
+│   ├── ingestion/
+│   │   ├── loaders.py         # Path → text extraction (PDF/DOCX/XLSX/…)
+│   │   └── pipeline.py        # Folder scan + upsert into pgvector
+│   ├── storage/
+│   │   ├── db.py              # psycopg connection + schema bootstrap
+│   │   └── embeddings.py      # Ollama embeddings factory
+│   └── ui/
+│       └── app.py             # Streamlit chat + upload interface
+├── evals/                     # ⚖️ Model evals + router policy
+│   ├── dataset.py             # Curated financial queries + key points
+│   ├── judge.py               # LLM-as-judge (1–5)
+│   ├── metrics.py             # Coverage + latency aggregation
+│   ├── run_evals.py           # Runner → results/ + policy.json
+│   └── results/               # summary.md, policy.json, results_<ts>.json
+├── requirements.txt
+└── .env.example
+```
+
+## 🛠️ Technology Stack
+
+- **UI** — Streamlit (streamed answers, ↑/↓ history recall, model + routing controls)
+- **AI/ML** — Ollama (local chat + embedding models), LangChain, LangGraph
+- **Agents** — planner → retriever → analyst graph + data-driven model router
+- **Retrieval** — hybrid dense + full-text search (RRF), conversational rewrite;
+  optional multi-query / HyDE / LLM rerank (env-toggled)
+- **Storage** — Postgres + pgvector (HNSW cosine + GIN full-text indexes), psycopg3
+- **Evals** — key-point coverage + LLM-as-judge + latency → `policy.json`

@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Financial Agentic Platform — Architecture</title>
+<style>
+  :root{
+    --bg:#0b1220;
+    --panel:#111c30;
+    --panel-2:#16233c;
+    --ink:#e8eefb;
+    --muted:#9fb0cc;
+    --line:#243553;
+    --blue:#3b82f6;
+    --cyan:#06b6d4;
+    --green:#10b981;
+    --amber:#f59e0b;
+    --violet:#8b5cf6;
+    --orange:#ff9900;
+    --pink:#ec4899;
+    --shadow:0 10px 30px rgba(0,0,0,.35);
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0;
+    font-family:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;
+    background:radial-gradient(1200px 600px at 80% -10%,#16263f 0%,transparent 60%),var(--bg);
+    color:var(--ink);
+    line-height:1.55;
+  }
+  a{color:var(--cyan);text-decoration:none}
+  .wrap{max-width:1150px;margin:0 auto;padding:0 22px 80px}
+
+  /* Header */
+  header.hero{
+    background:linear-gradient(90deg,#5b21b6 0%,#3b82f6 50%,#06b6d4 100%);
+    padding:48px 22px 56px;
+    text-align:center;
+    box-shadow:var(--shadow);
+  }
+  header.hero h1{margin:0;font-size:2.6rem;font-weight:800;letter-spacing:-.5px}
+  header.hero p{margin:.6rem 0 0;font-size:1.15rem;opacity:.92}
+  .badges{margin-top:18px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+  .badge{
+    background:rgba(255,255,255,.16);
+    border:1px solid rgba(255,255,255,.25);
+    padding:5px 12px;border-radius:999px;font-size:.8rem;font-weight:600;
+  }
+
+  /* Section */
+  section{margin-top:54px}
+  h2{font-size:1.5rem;margin:0 0 6px;display:flex;align-items:center;gap:10px}
+  h2 .num{
+    font-size:.85rem;background:var(--panel-2);border:1px solid var(--line);
+    color:var(--cyan);width:30px;height:30px;border-radius:8px;
+    display:inline-flex;align-items:center;justify-content:center;font-weight:700;
+  }
+  .lede{color:var(--muted);margin:0 0 22px;max-width:780px}
+
+  /* Layered diagram */
+  .layers{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+  .layer{
+    background:var(--panel);border:1px solid var(--line);border-radius:16px;
+    padding:20px;box-shadow:var(--shadow);position:relative;overflow:hidden;
+  }
+  .layer::before{content:"";position:absolute;inset:0 0 auto 0;height:4px}
+  .layer.ui::before{background:linear-gradient(90deg,var(--blue),var(--cyan))}
+  .layer.agent::before{background:linear-gradient(90deg,var(--violet),var(--pink))}
+  .layer.local::before{background:linear-gradient(90deg,var(--green),var(--cyan))}
+  .layer h3{margin:.2rem 0 4px;font-size:1.05rem}
+  .layer .tag{font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+  .layer ul{margin:14px 0 0;padding-left:0;list-style:none}
+  .layer li{
+    padding:9px 12px;margin:8px 0;border-radius:10px;background:var(--panel-2);
+    border:1px solid var(--line);font-size:.9rem;display:flex;gap:8px;align-items:flex-start;
+  }
+  .layer li b{font-weight:600}
+  .layer li small{display:block;color:var(--muted);font-weight:400;font-size:.78rem}
+  .flowarrow{text-align:center;color:var(--cyan);font-size:1.6rem;margin:6px 0}
+
+  /* Agent graph */
+  .graph{
+    background:var(--panel);border:1px solid var(--line);border-radius:16px;
+    padding:26px 20px;box-shadow:var(--shadow);
+  }
+  .graphrow{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:10px}
+  .gnode{
+    border-radius:14px;padding:14px 16px;text-align:center;min-width:150px;
+    border:1px solid var(--line);background:var(--panel-2);position:relative;
+  }
+  .gnode .ico{font-size:1.5rem}
+  .gnode h4{margin:6px 0 2px;font-size:.95rem}
+  .gnode p{margin:0;color:var(--muted);font-size:.76rem}
+  .gnode.planner{border-color:var(--violet);box-shadow:inset 0 0 0 1px rgba(139,92,246,.3)}
+  .gnode.retr{border-color:var(--cyan);box-shadow:inset 0 0 0 1px rgba(6,182,212,.3)}
+  .gnode.analyst{border-color:var(--blue);box-shadow:inset 0 0 0 1px rgba(59,130,246,.3)}
+  .gnode.terminal{border-color:var(--green);background:#0f2a22}
+  .garrow{color:var(--cyan);font-size:1.5rem;flex:0 0 auto}
+  .glabel{font-size:.68rem;color:var(--muted);display:block;margin-top:2px}
+  .loopnote{
+    margin-top:16px;text-align:center;color:var(--amber);font-size:.82rem;
+    border-top:1px dashed var(--line);padding-top:14px;
+  }
+
+  /* Pipeline steps */
+  .flowrow{display:flex;flex-wrap:wrap;align-items:stretch;gap:6px}
+  .step{
+    flex:1 1 150px;background:var(--panel);border:1px solid var(--line);
+    border-radius:14px;padding:16px;text-align:center;box-shadow:var(--shadow);min-width:140px;
+  }
+  .step .ico{font-size:1.6rem}
+  .step h4{margin:8px 0 3px;font-size:.95rem}
+  .step p{margin:0;color:var(--muted);font-size:.78rem}
+  .arrow{display:flex;align-items:center;justify-content:center;color:var(--cyan);font-size:1.5rem;padding:0 4px;flex:0 0 26px}
+
+  /* Cards grid */
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;box-shadow:var(--shadow)}
+  .card h3{margin:0 0 4px;font-size:1rem;display:flex;gap:8px;align-items:center}
+  .card ul{margin:8px 0 0;padding-left:18px;color:var(--muted);font-size:.86rem}
+  .card li{margin:4px 0}
+  .card .accent{height:3px;width:38px;border-radius:3px;background:var(--cyan);margin-bottom:12px}
+  .card .note{font-size:.78rem;color:var(--muted);margin:0}
+
+  /* Tech stack */
+  .stack{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px}
+  .pill{display:inline-block;background:var(--panel-2);border:1px solid var(--line);
+    padding:4px 10px;border-radius:999px;font-size:.8rem;margin:4px 4px 0 0}
+
+  /* Table */
+  table{width:100%;border-collapse:collapse;margin-top:6px;font-size:.88rem;
+    background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  th,td{padding:12px 14px;text-align:left;border-bottom:1px solid var(--line)}
+  th{background:var(--panel-2);color:var(--cyan);font-size:.78rem;text-transform:uppercase;letter-spacing:.06em}
+  tr:last-child td{border-bottom:none}
+  td b{color:var(--ink)}
+  code{background:var(--panel-2);border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-size:.85em}
+
+  /* Infra diagram */
+  .infra{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .node{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px;box-shadow:var(--shadow)}
+  .node h4{margin:0 0 10px;font-size:.95rem;color:var(--cyan)}
+  .node .row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px dashed var(--line);font-size:.85rem;gap:10px}
+  .node .row:last-child{border-bottom:none}
+  .node .row span:last-child{color:var(--muted);text-align:right}
+
+  footer{margin-top:60px;text-align:center;color:var(--muted);font-size:.82rem;
+    border-top:1px solid var(--line);padding-top:24px}
+  .note{font-size:.8rem;color:var(--muted);margin-top:10px}
+  @media(max-width:780px){
+    .layers{grid-template-columns:1fr}
+    .infra{grid-template-columns:1fr}
+    header.hero h1{font-size:2rem}
+    .garrow{transform:rotate(90deg)}
+    .graphrow{flex-direction:column}
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <h1>🏦 Financial Agentic Platform</h1>
+  <p>Multi-Agent Prepayment Analytics &amp; Risk Assessment — LangGraph over local LLMs</p>
+  <div class="badges">
+    <span class="badge">Python 3.11+</span>
+    <span class="badge">Streamlit UI</span>
+    <span class="badge">LangGraph multi-agent</span>
+    <span class="badge">Ollama · llama3.2:1b ⇄ qwen2.5:3b</span>
+    <span class="badge">Model router · evals</span>
+    <span class="badge">pgvector hybrid RAG</span>
+    <span class="badge">100% local</span>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- Overview -->
+  <section>
+    <h2><span class="num">01</span>System Overview</h2>
+    <p class="lede">
+      A document-grounded financial assistant that runs <b>entirely on your machine</b>. Documents are dropped
+      into a folder (or uploaded), then extracted, chunked, embedded and stored in <b>Postgres + pgvector</b>.
+      Each question is handled by a <b>multi-agent LangGraph workflow</b> — a planner routes the request and
+      classifies its complexity, a retriever pulls grounding context with hybrid search, and an analyst writes
+      the answer (streamed token-by-token). A <b>data-driven model router</b> picks which local model writes the
+      answer — fast for simple questions, strong for complex ones — using a policy measured by the eval harness.
+      Everything is served locally by Ollama; no cloud account or calls are required.
+    </p>
+
+    <div class="layers">
+      <div class="layer ui">
+        <div class="tag">Presentation</div>
+        <h3>🎨 UI Layer</h3>
+        <ul>
+          <li><span>💬</span><div><b>Streamlit chat</b><small>src/ui/app.py — streamed answers, ↑/↓ history, live agent trace</small></div></li>
+          <li><span>📁</span><div><b>Folder ingest + upload</b><small>PDF, DOCX, XLSX, PPTX, CSV, JSON, HTML, MD, TXT</small></div></li>
+          <li><span>🎛️</span><div><b>Controls</b><small>model dropdown · 🧭 auto-routing toggle · metrics dashboard</small></div></li>
+        </ul>
+      </div>
+      <div class="layer agent">
+        <div class="tag">Orchestration</div>
+        <h3>🤖 Multi-Agent Layer</h3>
+        <ul>
+          <li><span>🧭</span><div><b>Planner</b><small>graph.py — route (document/general) + complexity (simple/complex)</small></div></li>
+          <li><span>🔀</span><div><b>Model router</b><small>router.py — complexity → fast vs strong model (policy from evals)</small></div></li>
+          <li><span>🔎</span><div><b>Retriever → ✍️ Analyst</b><small>hybrid pgvector search · write grounded, streamed answer</small></div></li>
+        </ul>
+      </div>
+      <div class="layer local">
+        <div class="tag">Local services / data</div>
+        <h3>🖥️ Local Engine</h3>
+        <ul>
+          <li><span>🟢</span><div><b>Ollama</b><small>llama3.2:1b · qwen2.5:3b · mxbai-embed-large @ :11434</small></div></li>
+          <li><span>🗄️</span><div><b>Postgres + pgvector</b><small>documents &amp; chunks · HNSW (cosine) + GIN (full-text)</small></div></li>
+          <li><span>🔌</span><div><b>No cloud dependency</b><small>fully offline — no AWS, no external APIs</small></div></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- Agent graph -->
+  <section>
+    <h2><span class="num">02</span>The Agent Graph (LangGraph)</h2>
+    <p class="lede">
+      The heart of the platform. A compiled <code>StateGraph</code> passes a shared <code>AgentState</code>
+      between specialized nodes. The planner conditionally routes to retrieval for document questions, or
+      straight to the analyst for general-knowledge ones. The same planner call also labels the query
+      SIMPLE/COMPLEX, which the <b>model router</b> uses to choose the analyst's model — agentic behavior with
+      no extra latency.
+    </p>
+
+    <div class="graph">
+      <div class="graphrow">
+        <div class="gnode planner">
+          <div class="ico">🧭</div><h4>Planner</h4>
+          <p>route + complexity</p>
+        </div>
+        <div class="garrow">→</div>
+        <div class="gnode retr">
+          <div class="ico">🔎</div><h4>Retriever</h4>
+          <p>hybrid top-k from pgvector</p>
+          <span class="glabel">if “document”</span>
+        </div>
+        <div class="garrow">→</div>
+        <div class="gnode analyst">
+          <div class="ico">✍️</div><h4>Analyst</h4>
+          <p>writes grounded answer · streamed</p>
+          <span class="glabel">model chosen by router</span>
+        </div>
+        <div class="garrow">→</div>
+        <div class="gnode terminal">
+          <div class="ico">✅</div><h4>Finalize</h4>
+          <p>END</p>
+        </div>
+      </div>
+      <div class="loopnote" style="color:var(--cyan)">
+        🔀 <b>Model router:</b> the Planner's SIMPLE/COMPLEX label selects the Analyst's model —
+        <code>simple → llama3.2:1b</code> (fast), <code>complex → qwen2.5:3b</code> (strong). The Planner can
+        also skip the Retriever and go straight to the Analyst for general-knowledge questions. Streaming runs
+        on the caller's thread so tokens reach the Streamlit UI live.
+      </div>
+    </div>
+
+    <div class="grid" style="margin-top:18px">
+      <div class="card">
+        <div class="accent" style="background:var(--violet)"></div>
+        <h3>🧭 Planner</h3>
+        <ul>
+          <li>Two-axis classify: <b>DOCUMENT/GENERAL</b> + <b>SIMPLE/COMPLEX</b></li>
+          <li>Deterministic (temp 0); runs on the fast model</li>
+          <li>Keyword + complexity safety-nets backstop the small model</li>
+          <li>Optional conversational rewrite of follow-ups</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="accent" style="background:var(--cyan)"></div>
+        <h3>🔎 Retriever</h3>
+        <ul>
+          <li>Tool node — hybrid dense + sparse search</li>
+          <li>pgvector cosine + Postgres full-text, fused via RRF</li>
+          <li>Optional multi-query / HyDE / LLM rerank</li>
+          <li>De-dupes and builds cited context</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="accent" style="background:var(--blue)"></div>
+        <h3>✍️ Analyst</h3>
+        <ul>
+          <li>Writes the answer grounded in retrieved context</li>
+          <li>Token budget 700, temp 0.7; streamed token-by-token</li>
+          <li>Model selected per query by the router</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="accent" style="background:var(--orange)"></div>
+        <h3>🔀 Model Router</h3>
+        <ul>
+          <li>Maps complexity → model (fast vs strong)</li>
+          <li>Policy from <code>evals/results/policy.json</code></li>
+          <li>Falls back to <code>ROUTER_*</code> env vars</li>
+          <li>Toggle live in the sidebar; trace shows the model used</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- Model router & evals -->
+  <section>
+    <h2><span class="num">03</span>Model Router &amp; Evals</h2>
+    <p class="lede">
+      Different local models trade quality for speed. Rather than guess, the platform <b>measures</b> each
+      model with an offline eval harness, derives a routing <b>policy</b>, and the router applies it per query.
+      The harness needs only Ollama (no Postgres).
+    </p>
+
+    <div class="flowrow">
+      <div class="step"><div class="ico">📋</div><h4>Dataset</h4><p>curated financial Qs · simple + complex · key points</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">🤖</div><h4>Generate</h4><p>each model answers via the real analyst prompt</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">⚖️</div><h4>Grade</h4><p>key-point coverage + LLM-as-judge (1–5) + latency</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">🗳️</div><h4>Policy</h4><p>per-complexity model pick → policy.json</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">🔀</div><h4>Route</h4><p>router reads policy at query time</p></div>
+    </div>
+
+    <div class="grid" style="margin-top:18px">
+      <div class="card">
+        <div class="accent" style="background:var(--green)"></div>
+        <h3>📐 Quality metrics</h3>
+        <ul>
+          <li><b>Coverage</b> — deterministic: fraction of expected key points present</li>
+          <li><b>LLM-judge</b> — strongest local model rates 1–5 for correctness/relevance</li>
+          <li>Coverage anchors the noisier judge signal</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="accent" style="background:var(--amber)"></div>
+        <h3>⏱️ Cost metric</h3>
+        <ul>
+          <li>Wall-clock <b>latency</b> per answer (mean / p50 / p95)</li>
+          <li>Measured through the same <code>ChatOllama</code> path the app uses</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="accent" style="background:var(--orange)"></div>
+        <h3>🗳️ Policy rule</h3>
+        <ul>
+          <li>Per complexity, pick the fast model…</li>
+          <li>…unless the strong model's judge gain &gt; <code>QUALITY_TOLERANCE</code></li>
+          <li>Writes <code>fast_model</code>, <code>strong_model</code>, route map + rationale</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="accent" style="background:var(--violet)"></div>
+        <h3>🧪 Run it</h3>
+        <ul>
+          <li><code>python -m evals.run_evals</code></li>
+          <li>Outputs: <code>summary.md</code>, <code>results_&lt;ts&gt;.json</code>, <code>policy.json</code></li>
+          <li><code>--limit N</code> for a quick smoke run</li>
+        </ul>
+      </div>
+    </div>
+
+    <table style="margin-top:18px">
+      <thead>
+        <tr><th>Complexity</th><th>Example query</th><th>Routed model</th><th>Why</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><b>simple</b></td><td>“What is CPR in mortgage finance?”</td><td><code>llama3.2:1b</code> (fast)</td><td>Definitions don't need the strong model</td></tr>
+        <tr><td><b>complex</b></td><td>“Stress-test this portfolio for rate risk.”</td><td><code>qwen2.5:3b</code> (strong)</td><td>Multi-step reasoning rewards quality</td></tr>
+      </tbody>
+    </table>
+    <p class="note">Defaults shown; the live mapping comes from <code>evals/results/policy.json</code> (env
+      <code>ROUTER_FAST_MODEL</code> / <code>ROUTER_STRONG_MODEL</code> as fallback).</p>
+  </section>
+
+  <!-- Data flow -->
+  <section>
+    <h2><span class="num">04</span>Data Flow</h2>
+    <p class="lede">Two pipelines meet at the pgvector store: an <b>ingestion path</b> that embeds and indexes
+      documents, and the <b>multi-agent query path</b> that retrieves context and reasons over it.</p>
+
+    <h4 style="color:var(--muted);font-weight:600;margin:0 0 8px">📥 Ingestion pipeline</h4>
+    <div class="flowrow">
+      <div class="step"><div class="ico">📂</div><h4>Drop / Upload</h4><p>folder scan or sidebar upload</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">🧾</div><h4>Extract</h4><p>pypdf, python-docx, openpyxl, BeautifulSoup…</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">✂️</div><h4>Chunk</h4><p>1000 chars / 200 overlap</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">🔢</div><h4>Embed</h4><p>mxbai-embed-large (1024-dim)</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">💾</div><h4>Upsert</h4><p>pgvector · dedupe by content hash</p></div>
+    </div>
+
+    <div class="flowarrow">⇅</div>
+
+    <h4 style="color:var(--muted);font-weight:600;margin:0 0 8px">💬 Query pipeline (multi-agent RAG)</h4>
+    <div class="flowrow">
+      <div class="step"><div class="ico">❓</div><h4>User query</h4><p>natural language + chat history</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">🧭</div><h4>Plan + Route</h4><p>document/general · simple/complex</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">🔎</div><h4>Retrieve</h4><p>hybrid dense + sparse (RRF)</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">✍️</div><h4>Analyze</h4><p>routed model · streamed answer</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">📈</div><h4>Respond</h4><p>answer + agent trace + model</p></div>
+    </div>
+  </section>
+
+  <!-- Components -->
+  <section>
+    <h2><span class="num">05</span>Core Components</h2>
+    <div class="grid">
+      <div class="card">
+        <div class="accent" style="background:var(--pink)"></div>
+        <h3>🕸️ FinancialGraph</h3>
+        <p class="note">src/agents/graph.py</p>
+        <ul>
+          <li>Compiles the LangGraph <code>StateGraph</code></li>
+          <li>planner / retriever / analyst / finalize nodes</li>
+          <li>Per-query model selection via the router</li>
+          <li>Streaming <code>stream_run()</code> on the caller's thread</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="accent" style="background:var(--blue)"></div>
+        <h3>🧭 FinancialAgent</h3>
+        <p class="note">src/agents/financial_agent.py</p>
+        <ul>
+          <li>Entry point that runs the graph</li>
+          <li>Returns answer + <b>trace</b> + route + model</li>
+          <li><code>set_model()</code> / <code>set_router()</code>; startup ingest + warmup</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="accent" style="background:var(--orange)"></div>
+        <h3>🔀 Model Router</h3>
+        <p class="note">src/agents/router.py</p>
+        <ul>
+          <li><code>pick_model(complexity)</code> → fast / strong</li>
+          <li>Reads <code>policy.json</code>; env fallback</li>
+          <li>Toggle via <code>MODEL_ROUTER_ENABLED</code></li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="accent" style="background:var(--cyan)"></div>
+        <h3>🔎 VectorStore</h3>
+        <p class="note">src/agents/vector_store.py</p>
+        <ul>
+          <li>RecursiveCharacterTextSplitter chunking</li>
+          <li>Hybrid search: pgvector cosine + full-text, RRF-fused</li>
+          <li>Upsert with content-hash dedupe</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="accent" style="background:var(--violet)"></div>
+        <h3>🧩 Retrieval helpers</h3>
+        <p class="note">src/agents/retrieval.py</p>
+        <ul>
+          <li>Conversational rewrite of follow-ups</li>
+          <li>Multi-query expansion · HyDE · LLM rerank</li>
+          <li>All env-toggled; off by default for CPU speed</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="accent" style="background:var(--green)"></div>
+        <h3>🗄️ Storage &amp; Embeddings</h3>
+        <p class="note">src/storage/db.py · embeddings.py</p>
+        <ul>
+          <li>psycopg3 + pgvector; schema bootstrap</li>
+          <li>HNSW (cosine) + GIN (tsvector) indexes</li>
+          <li>Ollama <code>mxbai-embed-large</code> embeddings</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="accent" style="background:var(--cyan)"></div>
+        <h3>📥 Ingestion</h3>
+        <p class="note">src/ingestion/pipeline.py · loaders.py</p>
+        <ul>
+          <li>Folder scan → extract → upsert into pgvector</li>
+          <li>Per-format loaders (PDF/DOCX/XLSX/PPTX/…)</li>
+          <li>Runs on startup &amp; on sidebar “Re-scan”</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="accent" style="background:var(--green)"></div>
+        <h3>🟢 LLM factory</h3>
+        <p class="note">src/agents/llm.py</p>
+        <ul>
+          <li>Single place that builds <code>ChatOllama</code></li>
+          <li>Explicit <code>model</code> arg for per-model clients</li>
+          <li>Per-agent token budgets &amp; temperatures</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="accent" style="background:var(--blue)"></div>
+        <h3>🎨 Streamlit App</h3>
+        <p class="note">src/ui/app.py</p>
+        <ul>
+          <li>Chat with streamed answers + ↑/↓ history</li>
+          <li>Model dropdown + 🧭 auto-routing toggle</li>
+          <li>Live multi-agent trace + metrics dashboard</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="accent" style="background:var(--amber)"></div>
+        <h3>⚖️ Eval harness</h3>
+        <p class="note">evals/</p>
+        <ul>
+          <li>Dataset + coverage + LLM-judge + latency</li>
+          <li><code>run_evals.py</code> derives <code>policy.json</code></li>
+          <li>Ollama-only (no Postgres needed)</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- Tech stack -->
+  <section>
+    <h2><span class="num">06</span>Technology Stack</h2>
+    <div class="stack">
+      <div class="card">
+        <h3>🎨 Frontend</h3>
+        <span class="pill">Streamlit</span><span class="pill">Custom CSS/HTML</span>
+        <span class="pill">components.html (↑/↓ recall)</span><span class="pill">Pandas charts</span>
+      </div>
+      <div class="card">
+        <h3>🤖 Agents / LLM</h3>
+        <span class="pill">LangGraph 0.0.26</span><span class="pill">LangChain 0.1.x</span>
+        <span class="pill">Ollama</span><span class="pill">llama3.2:1b</span><span class="pill">qwen2.5:3b</span>
+        <span class="pill">Model router</span>
+      </div>
+      <div class="card">
+        <h3>💾 Data / Retrieval</h3>
+        <span class="pill">PostgreSQL + pgvector</span><span class="pill">psycopg3</span>
+        <span class="pill">mxbai-embed-large</span><span class="pill">Hybrid (dense + BM25) · RRF</span>
+      </div>
+      <div class="card">
+        <h3>🧾 Doc Processing</h3>
+        <span class="pill">pypdf</span><span class="pill">python-docx</span>
+        <span class="pill">python-pptx</span><span class="pill">openpyxl</span>
+        <span class="pill">BeautifulSoup</span><span class="pill">markdown</span>
+      </div>
+      <div class="card">
+        <h3>⚖️ Evals</h3>
+        <span class="pill">Key-point coverage</span><span class="pill">LLM-as-judge</span>
+        <span class="pill">Latency p50/p95</span><span class="pill">policy.json</span>
+      </div>
+      <div class="card">
+        <h3>🖥️ Runtime</h3>
+        <span class="pill">Python 3.11+</span><span class="pill">python-dotenv</span>
+        <span class="pill">Local .venv</span><span class="pill">100% offline</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Runtime topology -->
+  <section>
+    <h2><span class="num">07</span>Runtime Topology</h2>
+    <p class="lede">Everything runs locally as three cooperating processes, wired together by <code>.env</code>.</p>
+    <div class="infra">
+      <div class="node">
+        <h4>🖥️ Application &amp; LLM</h4>
+        <div class="row"><span>UI server</span><span>Streamlit @ localhost:8516</span></div>
+        <div class="row"><span>Chat model</span><span>Ollama @ :11434 (router: 1b ⇄ 3b)</span></div>
+        <div class="row"><span>Embeddings</span><span>mxbai-embed-large (1024-dim)</span></div>
+        <div class="row"><span>Runtime</span><span>Python 3.11 · local .venv</span></div>
+        <div class="row"><span>Cloud</span><span>none — fully offline</span></div>
+      </div>
+      <div class="node">
+        <h4>🗄️ Data &amp; configuration</h4>
+        <div class="row"><span>Database</span><span>Postgres + pgvector @ :5432</span></div>
+        <div class="row"><span>Tables</span><span>documents · document_chunks</span></div>
+        <div class="row"><span>Indexes</span><span>HNSW (cosine) · GIN (tsvector)</span></div>
+        <div class="row"><span>Ingest</span><span>DOCUMENTS_DIR folder scan</span></div>
+        <div class="row"><span>Policy</span><span>evals/results/policy.json</span></div>
+      </div>
+    </div>
+    <p class="note">The multi-agent graph is model-agnostic: every LLM is built through
+      <code>src/agents/llm.py</code>, so swapping or adding models (and the router's fast/strong pair) is a
+      config change — the agent topology stays the same.</p>
+  </section>
+
+  <!-- Use cases -->
+  <section>
+    <h2><span class="num">08</span>Key Use Cases</h2>
+    <table>
+      <thead>
+        <tr><th>Use case</th><th>Input</th><th>Analysis</th><th>Output</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><b>Document Q&amp;A</b></td><td>Report, statement, prospectus</td><td>Planner→Retriever→Analyst (routed)</td><td>Grounded, cited answer</td></tr>
+        <tr><td><b>Prepayment risk</b></td><td>Mortgage pool data</td><td>Historical trends + AI modeling</td><td>Risk scores &amp; forecasts</td></tr>
+        <tr><td><b>Credit assessment</b></td><td>Financial statements</td><td>Multi-factor analysis</td><td>Ratings &amp; recommendations</td></tr>
+        <tr><td><b>Yield analysis</b></td><td>Bond prospectuses</td><td>Cash-flow modeling</td><td>Expected returns &amp; duration</td></tr>
+        <tr><td><b>Compliance check</b></td><td>Regulatory docs</td><td>Rule interpretation</td><td>Compliance status &amp; gaps</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <footer>
+    🏦 Financial Agentic Platform &nbsp;·&nbsp; Multi-agent LangGraph workflow on a local Ollama LLM &nbsp;·&nbsp; Built with Streamlit
+    <div class="note">Architecture overview — derived from the project source (graph.py, router.py, financial_agent.py, retrieval.py, vector_store.py, storage/, ingestion/, evals/) and the README.</div>
+  </footer>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Retrieval Pipeline — Multi-Query · HyDE · LLM Rerank</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1419;
+    --panel: #161c24;
+    --panel-2: #1c232d;
+    --border: #2a3340;
+    --text: #e6edf3;
+    --muted: #8b95a3;
+    --accent: #58a6ff;
+    --accent-2: #7ee787;
+    --warn: #f0883e;
+    --code-bg: #0d1117;
+    --code-border: #30363d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
+      Ubuntu, Cantarell, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+  }
+  .container {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 48px 32px 96px;
+  }
+  header { margin-bottom: 48px; }
+  header h1 {
+    margin: 0 0 12px;
+    font-size: 2.2rem;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  header .subtitle {
+    color: var(--muted);
+    font-size: 1.05rem;
+  }
+  header .meta {
+    margin-top: 16px;
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
+  header .meta a { color: var(--accent); text-decoration: none; }
+  header .meta a:hover { text-decoration: underline; }
+
+  h2 {
+    margin: 56px 0 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+    font-size: 1.55rem;
+  }
+  h3 {
+    margin: 32px 0 12px;
+    font-size: 1.2rem;
+    color: var(--accent-2);
+  }
+  p, li { color: var(--text); }
+
+  code {
+    background: var(--code-bg);
+    border: 1px solid var(--code-border);
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
+    font-size: 0.9em;
+    color: #ffa657;
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--code-border);
+    border-radius: 8px;
+    padding: 16px 18px;
+    overflow-x: auto;
+    margin: 16px 0;
+  }
+  pre code {
+    background: transparent;
+    border: none;
+    padding: 0;
+    color: var(--text);
+    font-size: 0.88rem;
+    line-height: 1.55;
+  }
+  pre .kw    { color: #ff7b72; }
+  pre .str   { color: #a5d6ff; }
+  pre .com   { color: #8b949e; font-style: italic; }
+  pre .fn    { color: #d2a8ff; }
+  pre .num   { color: #79c0ff; }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 24px;
+    margin: 20px 0;
+  }
+  .panel.accent { border-left: 4px solid var(--accent); }
+  .panel.warn   { border-left: 4px solid var(--warn); }
+  .panel.ok     { border-left: 4px solid var(--accent-2); }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0 24px;
+    background: var(--panel-2);
+    border-radius: 8px;
+    overflow: hidden;
+    font-size: 0.92rem;
+  }
+  th, td {
+    padding: 10px 14px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  th {
+    background: var(--panel);
+    color: var(--accent);
+    font-weight: 600;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  tr:last-child td { border-bottom: none; }
+  td.muted { color: var(--muted); }
+
+  .mermaid-wrap {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 32px 20px;
+    margin: 24px 0;
+    text-align: center;
+    overflow-x: auto;
+  }
+
+  .pill {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    margin: 0 4px 0 0;
+    background: rgba(88, 166, 255, 0.15);
+    color: var(--accent);
+    border: 1px solid rgba(88, 166, 255, 0.3);
+  }
+  .pill.on  { background: rgba(126, 231, 135, 0.15); color: var(--accent-2);
+              border-color: rgba(126, 231, 135, 0.3); }
+  .pill.off { background: rgba(139, 149, 163, 0.15); color: var(--muted);
+              border-color: rgba(139, 149, 163, 0.3); }
+  .pill.warn{ background: rgba(240, 136, 62, 0.15); color: var(--warn);
+              border-color: rgba(240, 136, 62, 0.3); }
+
+  .math {
+    background: var(--panel-2);
+    border-left: 3px solid var(--accent-2);
+    padding: 14px 18px;
+    margin: 16px 0;
+    font-family: "Cambria Math", "Latin Modern Math", Cambria, serif;
+    font-size: 1.05rem;
+    text-align: center;
+  }
+  .math sub, .math sup { font-size: 0.75em; }
+
+  .toc {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 24px;
+    margin: 0 0 40px;
+  }
+  .toc ol { margin: 4px 0 0; padding-left: 24px; }
+  .toc a { color: var(--accent); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+
+  .tldr {
+    background: linear-gradient(135deg, rgba(88,166,255,0.08), rgba(126,231,135,0.08));
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--accent-2);
+    border-radius: 10px;
+    padding: 18px 22px;
+    margin: 24px 0 32px;
+  }
+  .tldr strong { color: var(--accent-2); }
+
+  footer {
+    margin-top: 64px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 0.85rem;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <h1>Retrieval Pipeline — Multi-Query · HyDE · LLM Rerank</h1>
+    <p class="subtitle">
+      How the three optional retrieval stages work in the Financial Agentic
+      Platform, and how they compose with hybrid (dense + sparse) search.
+    </p>
+    <p class="meta">
+      Source: <a href="../src/agents/retrieval.py"><code>src/agents/retrieval.py</code></a> ·
+      Wired in <a href="../src/agents/graph.py"><code>src/agents/graph.py</code></a> ·
+      Fusion helper in <a href="../src/agents/vector_store.py"><code>src/agents/vector_store.py</code></a>
+    </p>
+  </header>
+
+  <div class="tldr">
+    <strong>TL;DR.</strong> All three stages are opt-in env toggles. Multi-query
+    asks the LLM for paraphrases; HyDE asks it to invent an answer-shaped
+    probe; both are searched separately and fused with Reciprocal Rank Fusion.
+    LLM rerank is a single-prompt cross-encoder that re-orders the top
+    candidates. Defaults keep them <span class="pill off">off</span> so
+    retrieval stays fast on CPU.
+  </div>
+
+  <div class="toc">
+    <strong>Contents</strong>
+    <ol>
+      <li><a href="#flow">Pipeline diagram</a></li>
+      <li><a href="#budget">k-budget — how the knobs interact</a></li>
+      <li><a href="#multi">Multi-query expansion</a></li>
+      <li><a href="#hyde">HyDE — hypothetical document embedding</a></li>
+      <li><a href="#rrf">Reciprocal Rank Fusion (RRF)</a></li>
+      <li><a href="#rerank">LLM cross-encoder rerank</a></li>
+      <li><a href="#recipes">Practical recipes</a></li>
+      <li><a href="#toggles">Env toggles reference</a></li>
+    </ol>
+  </div>
+
+  <!-- ============================================== -->
+  <h2 id="flow">1. Pipeline diagram</h2>
+  <p>
+    The retrieval pipeline lives inside <code>retrieve_node</code>. Toggles are
+    re-read from the environment on every call, so flipping them does not
+    require restarting Streamlit.
+  </p>
+
+  <div class="mermaid-wrap">
+    <div class="mermaid">
+flowchart TD
+    Q[user query] --> MQ{multi_query<br/>OR hyde?}
+    MQ -- no --> SR["single search<br/>k = fetch_k if rerank else k"]
+    MQ -- yes --> EX["expand_queries<br/>+ hyde_query"]
+    EX --> LOOP["search each variant<br/>k = fetch_k each"]
+    LOOP --> RRF["RRF fuse"]
+    SR --> RR{rerank?}
+    RRF --> RR
+    RR -- no --> OUT["top-k → analyst"]
+    RR -- yes --> JU["rerank_llm scores 0–10<br/>keep top_k"]
+    JU --> OUT
+    </div>
+  </div>
+
+  <!-- ============================================== -->
+  <h2 id="budget">2. k-budget — how the knobs interact</h2>
+  <p>
+    The graph chooses fetch sizes based on which stages are on, so it
+    <em>always over-fetches</em> when fusing or reranking but never spends
+    extra tokens when neither is active.
+  </p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>multi-query / HyDE</th>
+        <th>rerank</th>
+        <th>per-leg fetch</th>
+        <th>returned to analyst</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><span class="pill off">off</span></td>
+        <td><span class="pill off">off</span></td>
+        <td><code>k</code> (= 6)</td>
+        <td><code>k</code></td>
+      </tr>
+      <tr>
+        <td><span class="pill off">off</span></td>
+        <td><span class="pill on">on</span></td>
+        <td><code>fetch_k</code> (= 20)</td>
+        <td><code>k</code> after LLM rerank</td>
+      </tr>
+      <tr>
+        <td><span class="pill on">on</span></td>
+        <td><span class="pill off">off</span></td>
+        <td><code>fetch_k</code> per variant</td>
+        <td><code>k</code> after RRF fuse</td>
+      </tr>
+      <tr>
+        <td><span class="pill on">on</span></td>
+        <td><span class="pill on">on</span></td>
+        <td><code>fetch_k</code> per variant</td>
+        <td><code>fetch_k</code> after fuse → <code>k</code> after rerank</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================== -->
+  <h2 id="multi">3. Multi-query expansion — <code>expand_queries</code></h2>
+
+  <h3>Idea</h3>
+  <p>
+    Small dense models miss results whose phrasing differs from the query.
+    Asking the LLM for paraphrases lets the same intent be retrieved from
+    multiple angles.
+  </p>
+
+  <h3>Logic</h3>
+  <ol>
+    <li>
+      Prompt the <strong>planner LLM</strong> (<code>self.planner_llm</code>,
+      the fast model) for a JSON array of <code>n = 3</code> alternative
+      phrasings.
+    </li>
+    <li>
+      <code>_extract_json</code> is defensive: tries <code>json.loads</code>,
+      then regex-finds the first <code>[...]</code> block, falls back to
+      <code>[]</code> on parse failure.
+    </li>
+    <li>
+      The original query is <strong>always prepended</strong> so you never
+      lose the user's exact phrasing — variants only widen recall.
+    </li>
+    <li>Lowercase-dedupe + cap at <code>n + 1</code>.</li>
+  </ol>
+
+  <div class="panel">
+    <strong>Cost.</strong> Roughly <strong>4× the search cost</strong> (one
+    ANN + FTS per variant). Cost stays bounded because each variant fetches
+    <code>fetch_k = 20</code>, and RRF compresses the union back to
+    <code>k = 6</code>.
+  </div>
+
+  <!-- ============================================== -->
+  <h2 id="hyde">4. HyDE — <code>hyde_query</code></h2>
+
+  <h3>Idea (Gao et al. 2022)</h3>
+  <p>
+    <em>"Precise Zero-Shot Dense Retrieval without Relevance Labels."</em>
+    The gap between a <strong>question</strong> and a <strong>document
+    chunk</strong> is large in embedding space (different syntax, different
+    vocabulary). A hypothetical <strong>answer</strong> is structurally closer
+    to the chunks you want to retrieve. So we let the LLM hallucinate a short
+    answer-shaped passage and embed <em>that</em> as the search probe.
+  </p>
+
+  <h3>Logic</h3>
+  <ol>
+    <li>
+      Prompt the planner LLM to invent a 2–4 sentence "document excerpt"
+      answer. Hallucination is <strong>explicitly encouraged</strong> — the
+      text is <em>never shown to the user</em>, only used as a search probe.
+    </li>
+    <li>
+      If anything goes wrong the function returns <code>None</code> and
+      <code>multi_query_search</code> simply ignores it (original query
+      carries the search).
+    </li>
+    <li>
+      <strong>HyDE composes with multi-query.</strong> When both are on, the
+      HyDE probe is appended as another variant alongside the paraphrases,
+      all RRF-fused together.
+    </li>
+  </ol>
+
+  <div class="panel ok">
+    <strong>Why it helps locally.</strong> With a 1024-dim embedder like
+    <code>mxbai-embed-large</code>, a short answer phrased like a financial
+    paragraph lands near the right chunks even when the user query is terse
+    (<em>"CPR vs PSA?"</em>).
+  </div>
+  <div class="panel">
+    <strong>Cost.</strong> One extra LLM round-trip + one extra retrieval leg
+    per query.
+  </div>
+
+  <!-- ============================================== -->
+  <h2 id="rrf">5. Reciprocal Rank Fusion — <code>_rrf_fuse</code></h2>
+  <p>
+    Multi-query and HyDE both produce <strong>multiple ranked lists</strong>
+    that need merging. Naively summing scores does not work because the score
+    scales are incompatible:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>signal</th><th>range</th><th>typical magnitude</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>cosine similarity (pgvector)</td><td><code>[0, 1]</code></td><td>0.6 – 0.8</td></tr>
+      <tr><td>Postgres <code>ts_rank_cd</code></td><td>unbounded, small</td><td>0.003 – 0.05</td></tr>
+      <tr><td>LLM judge score</td><td><code>[0, 10]</code></td><td>3 – 9</td></tr>
+    </tbody>
+  </table>
+
+  <p>RRF sidesteps the problem by only using <strong>ranks</strong>:</p>
+
+  <div class="math">
+    score(d) = Σ<sub>L</sub> 1 / (k + rank<sub>L</sub>(d))
+  </div>
+
+  <p>with <code>k = 60</code> (the conventional smoothing constant).</p>
+
+  <h3>Implementation details</h3>
+  <ul>
+    <li>
+      Items are keyed by <code>(source_path, content[:80])</code> so the same
+      chunk surfaced by multiple legs gets its RRF scores summed.
+    </li>
+    <li>
+      The fused <code>rrf_score</code> overwrites <code>relevance_score</code>
+      on the returned dict so downstream code (UI, analyst prompt) keeps
+      working unchanged.
+    </li>
+    <li>Truncated to <code>k</code> at the end.</li>
+  </ul>
+
+  <div class="panel warn">
+    <strong>Heads-up.</strong> Fused scores in the trace look like
+    <code>0.032</code> instead of <code>0.69</code> — they are a different
+    metric, not a broken cosine.
+  </div>
+
+  <!-- ============================================== -->
+  <h2 id="rerank">6. LLM cross-encoder rerank — <code>rerank_llm</code></h2>
+
+  <h3>Idea</h3>
+  <p>
+    Dense ANN is recall-oriented and cheap, but ordering inside the top-k is
+    noisy. A cross-encoder (one prompt that <em>sees</em> both query and
+    passage together) is much more discriminating. We do not have a real
+    cross-encoder model on the box, so we use the LLM-as-judge variant.
+  </p>
+
+  <h3>Logic</h3>
+  <ol>
+    <li>
+      <strong>Cap at 20 candidates</strong> — long prompts blow up CPU
+      inference time and the model loses focus.
+    </li>
+    <li>
+      Truncate each candidate to <strong>600 chars</strong> and strip newlines
+      so the batch fits in one prompt.
+    </li>
+    <li>
+      Single prompt:
+      <em>"score each PASSAGE 0–10 for QUESTION, reply with JSON
+      [{id, score}]"</em>.
+    </li>
+    <li>
+      Defensive parsing again via <code>_extract_json</code>. If anything
+      fails → return <code>results[:top_k]</code> (original order).
+    </li>
+    <li>
+      Sort by score desc, take <code>top_k</code>, and
+      <strong>renormalize the score to <code>[0, 1]</code></strong>
+      (<code>score / 10</code>) so the UI's relevance bar stays meaningful.
+    </li>
+  </ol>
+
+  <div class="panel ok">
+    <strong>The key trick: one prompt for the whole batch.</strong> A
+    per-passage prompt would be 20× slower. Trade-off: the model has to keep
+    all 20 in working memory, which is why the 600-char cap matters.
+  </div>
+
+  <!-- ============================================== -->
+  <h2 id="recipes">7. Practical recipes</h2>
+
+  <table>
+    <thead>
+      <tr>
+        <th>scenario</th>
+        <th>setting</th>
+        <th>why</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Default — fast</td>
+        <td>all <span class="pill off">off</span></td>
+        <td>One ANN + one FTS, RRF-fused, top-6 to the analyst.</td>
+      </tr>
+      <tr>
+        <td>Hard, ambiguous questions</td>
+        <td><code>RETRIEVAL_MULTI_QUERY=true</code></td>
+        <td>Best recall boost per ms of extra compute.</td>
+      </tr>
+      <tr>
+        <td>Vocabulary mismatch (acronyms, short queries)</td>
+        <td><code>RETRIEVAL_HYDE=true</code></td>
+        <td>Cheapest after multi-query; closes the question/answer gap.</td>
+      </tr>
+      <tr>
+        <td>Precision over recall (near-misses in top-6)</td>
+        <td><code>RETRIEVAL_RERANK=true</code></td>
+        <td>Most expensive on CPU; highest-quality reordering.</td>
+      </tr>
+      <tr>
+        <td>Testing recall ceilings</td>
+        <td>all <span class="pill on">on</span></td>
+        <td>5+ LLM calls per query on <code>llama3.2:1b</code>. Slow but thorough.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================== -->
+  <h2 id="toggles">8. Env toggles reference</h2>
+
+  <table>
+    <thead>
+      <tr>
+        <th>env var</th>
+        <th>default</th>
+        <th>read by</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>RETRIEVAL_MODE</code></td>
+        <td><code>hybrid</code></td>
+        <td><code>vector_store.search_documents</code> (<code>vector</code> | <code>keyword</code> | <code>hybrid</code>)</td>
+      </tr>
+      <tr>
+        <td><code>RETRIEVAL_K</code></td>
+        <td><code>6</code></td>
+        <td>Final top-k handed to the analyst.</td>
+      </tr>
+      <tr>
+        <td><code>RETRIEVAL_FETCH_K</code></td>
+        <td><code>20</code></td>
+        <td>Per-leg over-fetch size when fusing or reranking.</td>
+      </tr>
+      <tr>
+        <td><code>RETRIEVAL_REWRITE</code></td>
+        <td><span class="pill on">true</span></td>
+        <td>Conversational query rewrite (cheap, almost always wins).</td>
+      </tr>
+      <tr>
+        <td><code>RETRIEVAL_MULTI_QUERY</code></td>
+        <td><span class="pill off">false</span></td>
+        <td><code>expand_queries</code> — 3 paraphrases via planner LLM.</td>
+      </tr>
+      <tr>
+        <td><code>RETRIEVAL_HYDE</code></td>
+        <td><span class="pill off">false</span></td>
+        <td><code>hyde_query</code> — hypothetical answer used as a search probe.</td>
+      </tr>
+      <tr>
+        <td><code>RETRIEVAL_RERANK</code></td>
+        <td><span class="pill off">false</span></td>
+        <td><code>rerank_llm</code> — single-prompt cross-encoder over top-N.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <footer>
+    Generated for the Financial Agentic Platform · pgvector + Ollama + LangGraph
+  </footer>
+</div>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'dark',
+    themeVariables: {
+      background: '#161c24',
+      primaryColor: '#1c232d',
+      primaryTextColor: '#e6edf3',
+      primaryBorderColor: '#58a6ff',
+      lineColor: '#7ee787',
+      secondaryColor: '#2a3340',
+      tertiaryColor: '#0f1419'
+    },
+    flowchart: { curve: 'basis', useMaxWidth: true }
+  });
+</script>
+</body>
+</html>
