@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Prompt Optimization — Financial Agentic Platform</title>
+<link rel="stylesheet" href="strategy.css">
+</head>
+<body>
+
+<div class="crumbs">
+  <a href="../architecture.html">🏦 Architecture</a><span class="sep">›</span>
+  <a href="index.html">Strategies</a><span class="sep">›</span>
+  <span>Prompt Optimization</span>
+</div>
+
+<header class="hero">
+  <p class="eyebrow">Strategy · Prompting</p>
+  <h1>📝 Prompt Optimization</h1>
+  <p class="sub">
+    Every agent runs on a small local model (1B–3B params). The prompts are engineered for that
+    reality: tightly constrained outputs, explicit anti-hallucination guards, and parsers that
+    survive a model going off-script.
+  </p>
+  <div class="badges">
+    <span class="badge">src/agents/graph.py</span>
+    <span class="badge">src/agents/retrieval.py</span>
+    <span class="badge">tiny-model hardened</span>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <section>
+    <h2><span class="dot"></span>Design principles</h2>
+    <ul class="clean">
+      <li><b>Constrain the output shape.</b> Ask for exactly two words, or only a JSON array — small
+        models ramble, so the format is pinned and the surrounding prose is forbidden.</li>
+      <li><b>Ground hard, hallucinate never.</b> The analyst is told to answer <i>only</i> from the
+        retrieved content and to cite specifics; with no context it must say so explicitly.</li>
+      <li><b>Match temperature to the job.</b> Routing/classification run at <code>temp 0.0</code>
+        (deterministic); the analyst writes at <code>temp 0.7</code> for fluency.</li>
+      <li><b>Budget tokens per role.</b> The planner gets <code>num_predict=24</code> (it only emits
+        a label); the analyst gets 700 so answers don't run away on slow CPUs.</li>
+      <li><b>Always pair a prompt with a tolerant parser + a safety net.</b> No prompt is trusted to
+        be obeyed — keyword backstops and salvage parsers catch the misses.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>The planner prompt — two labels, nothing else</h2>
+    <p>
+      The planner does double duty in one call: it decides <b>route</b> (document vs. general) and
+      <b>complexity</b> (simple vs. complex, which drives the model router). The prompt demands
+      exactly two words so the reply is trivial to parse.
+    </p>
+    <pre><code><span class="tok-c"># graph.py — planner_node()</span>
+<span class="tok-s">"Classify the user's request on two axes and reply with EXACTLY two "</span>
+<span class="tok-s">"words separated by a space, nothing else:\n"</span>
+<span class="tok-s">"  axis 1: DOCUMENT (...) or GENERAL (...)\n"</span>
+<span class="tok-s">"  axis 2: SIMPLE (...) or COMPLEX (...)\n"</span>
+<span class="tok-s">"Example replies: 'GENERAL SIMPLE' or 'DOCUMENT COMPLEX'."</span></code></pre>
+    <div class="panel tip">
+      <h4>🛟 Safety nets backstop the tiny classifier</h4>
+      <p>
+        Because a 1B model routes imperfectly, deterministic guards override it: a question
+        containing obvious document words (<code>_DOCUMENT_HINTS</code>) forces retrieval when docs
+        exist, and a long or analytical question (<code>_COMPLEX_HINTS</code>, &gt;30 words) is
+        promoted to <code>complex</code> even if the model said simple. The prompt sets the default;
+        the code guarantees the floor.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>The analyst prompt — grounded and anti-evasion</h2>
+    <p>
+      Built by the pure function <code>analyst_prompt()</code> (module-level so the eval harness can
+      reproduce the <i>exact</i> app prompt without a database). It has two branches:
+    </p>
+    <table>
+      <thead><tr><th>Context present?</th><th>Instruction</th></tr></thead>
+      <tbody>
+        <tr><td><b>Yes</b> — chunks retrieved</td>
+          <td>"Base your answer <b>ONLY</b> on the document content… Quote and cite specific details
+            (numbers, names, sections). <b>Do not claim you lack access</b> — the content is provided here."</td></tr>
+        <tr><td><b>No</b> — nothing retrieved</td>
+          <td>"Answer using your general financial expertise. <b>Be clear that the answer is not drawn
+            from an uploaded document</b>."</td></tr>
+      </tbody>
+    </table>
+    <div class="panel why">
+      <h4>🚫 Killing the "I can't access your files" failure</h4>
+      <p>
+        Small instruct models love to refuse with "I don't have access to your documents" even when
+        the text is right there in the prompt. The explicit <i>"Do not claim you lack access"</i>
+        clause plus delimited <code>=== DOCUMENT CONTENT ===</code> fences fixes that, and forcing
+        citations of concrete numbers/names anchors the answer to the evidence instead of the
+        model's priors.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>JSON-output prompts + salvage parsing</h2>
+    <p>
+      The rewrite, multi-query, HyDE, re-rank and question-suggestion prompts all ask for strict
+      formats (a bare line, or a JSON array). Small models still drift, so each prompt is paired
+      with a forgiving parser rather than trusting compliance.
+    </p>
+    <ul class="clean">
+      <li><b>Re-rank:</b> asks for <code>[{"id","score"}]</code>; on any parse failure it returns the
+        original order — the prompt can misfire without breaking retrieval.</li>
+      <li><b>Suggestions:</b> <code>_parse_question_list()</code> tries strict JSON, then salvages
+        quoted strings from a truncated array, then falls back to line-by-line bullet stripping.</li>
+      <li><b>Rewrite:</b> strips stray quotes/markdown and takes only the first line, so a chatty
+        model still yields a clean standalone query.</li>
+    </ul>
+    <pre><code><span class="tok-c"># graph.py — robust three-tier parse of a "JSON array of questions"</span>
+<span class="tok-c"># 1) parse a JSON array if present</span>
+<span class="tok-c"># 2) else salvage quoted strings from a truncated / malformed array</span>
+<span class="tok-c"># 3) else split lines, strip bullets/numbers/quotes, keep ones ending in '?'</span></code></pre>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>Per-agent generation settings</h2>
+    <table>
+      <thead><tr><th>Agent</th><th>num_predict</th><th>temp</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td>🧭 Planner</td><td>24</td><td>0.0</td><td>Emits one label pair — deterministic, minimal tokens</td></tr>
+        <tr><td>✍️ Analyst</td><td>700</td><td>0.7</td><td>Fluent prose, capped so it can't run away on CPU</td></tr>
+        <tr><td>💡 Suggestions</td><td>220</td><td>0.4</td><td>A short list; strong model, mild creativity</td></tr>
+        <tr><td>🎯 Re-rank / 🪄 Rewrite</td><td>(planner)</td><td>0.0</td><td>Deterministic scoring/rewriting on the fast model</td></tr>
+      </tbody>
+    </table>
+    <p class="note">
+      All clients are built through the single factory <code>src/agents/llm.py</code>
+      (<code>build_llm(num_predict, temperature, model)</code>, <code>top_p=0.9</code>), so these
+      knobs live in one place.
+    </p>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>Prompts are validated by evals, not vibes</h2>
+    <p>
+      The analyst prompt isn't tuned by guesswork — the <a href="model-routing-strategy.html">eval
+      harness</a> runs each candidate model through the <i>real</i> <code>analyst_prompt()</code> and
+      scores key-point coverage + an LLM judge, so prompt and model choices are measured together.
+    </p>
+  </section>
+
+  <div class="pagenav">
+    <a class="prev" href="reranking-strategy.html"><span class="dir">← Prev</span><span class="ttl">Re-ranking Strategy</span></a>
+    <a class="next" href="model-routing-strategy.html"><span class="dir">Next →</span><span class="ttl">Model Routing Strategy</span></a>
+  </div>
+
+  <footer>🏦 Financial Agentic Platform · Prompt optimization deep dive</footer>
+</div>
+</body>
+</html>

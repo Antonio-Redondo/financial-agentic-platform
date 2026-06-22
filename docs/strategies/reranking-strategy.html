@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Re-ranking Strategy — Financial Agentic Platform</title>
+<link rel="stylesheet" href="strategy.css">
+</head>
+<body>
+
+<div class="crumbs">
+  <a href="../architecture.html">🏦 Architecture</a><span class="sep">›</span>
+  <a href="index.html">Strategies</a><span class="sep">›</span>
+  <span>Re-ranking</span>
+</div>
+
+<header class="hero">
+  <p class="eyebrow">Strategy · Precision</p>
+  <h1>🎯 Re-ranking Strategy</h1>
+  <p class="sub">
+    Retrieval is tuned for <i>recall</i> — fetch many plausible chunks. Re-ranking adds a precision
+    pass: an LLM acts as a cross-encoder, reading each candidate against the question and keeping
+    only the genuinely relevant few.
+  </p>
+  <div class="badges">
+    <span class="badge">src/agents/retrieval.py</span>
+    <span class="badge">rerank_llm()</span>
+    <span class="badge off">off by default</span>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <section>
+    <h2><span class="dot"></span>Why re-rank at all?</h2>
+    <div class="panel why">
+      <h4>🧠 Bi-encoder recall vs. cross-encoder precision</h4>
+      <p>
+        Vector and keyword search are <b>bi-encoders</b>: the query and each chunk are encoded
+        <i>separately</i>, then compared. That's fast and scales to the whole corpus, but the model
+        never sees the query and a passage <i>together</i>, so subtle relevance is lost. A
+        <b>cross-encoder</b> reads the (question, passage) pair jointly and judges them in context —
+        far more accurate, but too slow to run over every chunk. The fix: retrieve broadly with the
+        cheap bi-encoders, then re-rank a small shortlist with the expensive cross-encoder.
+      </p>
+    </div>
+    <p>
+      This platform has no separate cross-encoder model — it reuses the local LLM as one, asking it
+      to score the shortlist. No extra dependency, no extra model to pull.
+    </p>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>How it works</h2>
+    <div class="flow">
+      <div class="step"><div class="ico">🔎</div><h5>Over-fetch</h5><p>fetch_k = 20 chunks</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">📦</div><h5>Batch</h5><p>cap at 20, 600 chars each</p></div>
+      <div class="arrow">→</div>
+      <div class="step" style="border-color:var(--violet)"><div class="ico">⚖️</div><h5>Score 0–10</h5><p>one LLM prompt, JSON out</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">✂️</div><h5>Keep top-k</h5><p>k = 6 to the analyst</p></div>
+    </div>
+    <p>
+      When <code>RETRIEVAL_RERANK=true</code>, the retriever over-fetches to <code>fetch_k</code>
+      instead of <code>k</code>, then calls <code>rerank_llm()</code> to trim back to the best
+      <code>RETRIEVAL_K</code>. The whole shortlist is scored in <b>a single prompt</b> — one LLM
+      round-trip, not one per chunk — which keeps it affordable on CPU.
+    </p>
+    <pre><code><span class="tok-c"># retrieval.py — rerank_llm(): one batched prompt for the whole shortlist</span>
+candidates = results[:<span class="tok-s">20</span>]                 <span class="tok-c"># cap — long prompts kill CPU latency</span>
+snippet = (r[<span class="tok-s">"content"</span>] <span class="tok-k">or</span> <span class="tok-s">""</span>)[:<span class="tok-s">600</span>]      <span class="tok-c"># trim each passage</span>
+prompt = (
+  <span class="tok-s">"You are scoring how well each PASSAGE answers the QUESTION. "</span>
+  <span class="tok-s">'Reply with ONLY a JSON array of objects `[{"id": &lt;int&gt;, "score": &lt;0-10&gt;}]`'</span> ...
+)
+<span class="tok-c"># scores normalized to 0–1 and written back as relevance_score; top_k kept</span>
+r[<span class="tok-s">"relevance_score"</span>] = <span class="tok-f">max</span>(<span class="tok-s">0.0</span>, score / <span class="tok-s">10.0</span>)</code></pre>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>Built to fail safe</h2>
+    <ul class="clean">
+      <li><b>Parse-proof.</b> If the LLM returns malformed JSON or no scores, the original retrieval
+        order is preserved (<code>results[:top_k]</code>) — re-ranking never <i>worsens</i> results.</li>
+      <li><b>Bounded cost.</b> The batch is capped at 20 candidates and each passage truncated to
+        600 chars, so the prompt can't balloon on a large corpus.</li>
+      <li><b>Single round-trip.</b> Scoring the whole shortlist in one prompt (vs. one call per chunk)
+        is what makes an LLM re-ranker viable on a local model.</li>
+      <li><b>Score normalization.</b> 0–10 judgements are mapped to a 0–1 <code>relevance_score</code>
+        so the cited context the analyst sees stays on the same scale as the other retrieval modes.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>When to turn it on</h2>
+    <table>
+      <thead><tr><th>Situation</th><th>Recommendation</th></tr></thead>
+      <tbody>
+        <tr><td>Fast, interactive CPU chat</td><td><b>Leave off</b> — hybrid + RRF is usually enough</td></tr>
+        <tr><td>Large/noisy corpus, near-duplicate chunks</td><td><b>Turn on</b> — precision gain outweighs the extra call</td></tr>
+        <tr><td>High-stakes, accuracy-critical answers</td><td><b>Turn on</b>, ideally paired with multi-query for recall first</td></tr>
+        <tr><td>GPU available</td><td><b>Turn on</b> — the added latency is small</td></tr>
+      </tbody>
+    </table>
+    <div class="panel warn">
+      <h4>⚠️ It's the most expensive toggle</h4>
+      <p>
+        Re-ranking adds one large prompt (up to ~20 passages × 600 chars) per query on top of
+        retrieval. On a slow CPU that can dominate response time — which is exactly why it ships
+        disabled and is best combined with the model router so the heavier work lands on the
+        strong model only when warranted.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>Configuration knobs</h2>
+    <div class="kv">
+      <div>RETRIEVAL_RERANK</div><div>false — set true to enable the LLM cross-encoder pass</div>
+      <div>RETRIEVAL_FETCH_K</div><div>20 — shortlist size fed into re-ranking</div>
+      <div>RETRIEVAL_K</div><div>6 — final count kept after re-ranking</div>
+    </div>
+    <p class="note">
+      The re-ranker runs on the planner/fast model (<code>self.planner_llm</code>) — deterministic
+      and already loaded — so enabling it doesn't pull a second model into memory.
+    </p>
+  </section>
+
+  <div class="pagenav">
+    <a class="prev" href="retrieval-strategy.html"><span class="dir">← Prev</span><span class="ttl">Retrieval Strategy</span></a>
+    <a class="next" href="prompt-optimization.html"><span class="dir">Next →</span><span class="ttl">Prompt Optimization</span></a>
+  </div>
+
+  <footer>🏦 Financial Agentic Platform · Re-ranking deep dive</footer>
+</div>
+</body>
+</html>

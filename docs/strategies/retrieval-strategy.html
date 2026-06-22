@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Retrieval Strategy — Financial Agentic Platform</title>
+<link rel="stylesheet" href="strategy.css">
+</head>
+<body>
+
+<div class="crumbs">
+  <a href="../architecture.html">🏦 Architecture</a><span class="sep">›</span>
+  <a href="index.html">Strategies</a><span class="sep">›</span>
+  <span>Retrieval</span>
+</div>
+
+<header class="hero">
+  <p class="eyebrow">Strategy · Query path</p>
+  <h1>🔎 Retrieval Strategy</h1>
+  <p class="sub">
+    The retriever blends two complementary search methods — dense semantic vectors and sparse
+    keyword matching — and fuses them with Reciprocal Rank Fusion. Optional LLM stages widen and
+    sharpen recall when accuracy matters more than latency.
+  </p>
+  <div class="badges">
+    <span class="badge">src/agents/vector_store.py</span>
+    <span class="badge">src/agents/retrieval.py</span>
+    <span class="badge on">hybrid (default)</span>
+    <span class="badge off">multi-query · HyDE (opt-in)</span>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <section>
+    <h2><span class="dot"></span>The core idea: hybrid search</h2>
+    <p class="lede">
+      No single search method wins everywhere. <b>Dense</b> vector search understands meaning
+      ("prepayment speed" ≈ "CPR") but can miss exact tokens; <b>sparse</b> full-text search nails
+      exact identifiers (a CUSIP, a section number, "FNM&nbsp;2026-012") but is blind to synonyms.
+      Hybrid runs both and fuses the rankings, so the answer is grounded by whichever leg found
+      the best evidence.
+    </p>
+    <div class="flow">
+      <div class="step" style="border-color:var(--cyan)"><div class="ico">🧲</div><h5>Dense</h5><p>pgvector cosine<br>1 − (emb &lt;=&gt; q)</p></div>
+      <div class="arrow">＋</div>
+      <div class="step" style="border-color:var(--amber)"><div class="ico">🔤</div><h5>Sparse</h5><p>Postgres full-text<br>ts_rank_cd / BM25-style</p></div>
+      <div class="arrow">→</div>
+      <div class="step" style="border-color:var(--violet)"><div class="ico">🔗</div><h5>Fuse (RRF)</h5><p>rank-based merge<br>top-k to analyst</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>Two retrieval legs</h2>
+    <h3>🧲 Dense — semantic similarity</h3>
+    <p>
+      The query is embedded with <code>mxbai-embed-large</code> and compared to chunk vectors using
+      pgvector's cosine distance operator <code>&lt;=&gt;</code>, accelerated by an HNSW index.
+    </p>
+    <pre><code><span class="tok-c"># vector_search()</span>
+<span class="tok-k">SELECT</span> c.content, ..., <span class="tok-s">1</span> - (c.embedding <span class="tok-f">&lt;=&gt;</span> %s::vector) <span class="tok-k">AS</span> relevance_score
+<span class="tok-k">FROM</span> document_chunks c <span class="tok-k">JOIN</span> documents d <span class="tok-k">ON</span> d.id = c.document_id
+<span class="tok-k">ORDER BY</span> c.embedding <span class="tok-f">&lt;=&gt;</span> %s::vector <span class="tok-k">LIMIT</span> %s</code></pre>
+
+    <h3>🔤 Sparse — full-text keyword</h3>
+    <p>
+      Postgres' <code>ts_rank_cd</code> ranks chunks against a <code>websearch_to_tsquery</code>, so
+      users can paste natural phrasing (quoted phrases, <code>OR</code>) without writing a tsquery.
+      A GIN index over the stored <code>content_tsv</code> column makes it fast.
+    </p>
+    <pre><code><span class="tok-c"># keyword_search()</span>
+<span class="tok-k">WHERE</span> c.content_tsv <span class="tok-f">@@</span> <span class="tok-f">websearch_to_tsquery</span>(<span class="tok-s">'english'</span>, %s)
+<span class="tok-k">ORDER BY</span> <span class="tok-f">ts_rank_cd</span>(c.content_tsv, <span class="tok-f">websearch_to_tsquery</span>(<span class="tok-s">'english'</span>, %s)) <span class="tok-k">DESC</span></code></pre>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>Fusion: Reciprocal Rank Fusion (RRF)</h2>
+    <div class="panel why">
+      <h4>🔗 Why RRF instead of mixing scores?</h4>
+      <p>
+        Cosine similarity (0–1) and <code>ts_rank_cd</code> (unbounded) live on totally different
+        scales — you can't just add them. RRF sidesteps this by ignoring raw scores and using only
+        <b>rank position</b>: a chunk's contribution is <code>1 / (k + rank)</code>, summed across
+        legs. It's parameter-light, robust to heterogeneous scorers, and rewards chunks that rank
+        well in <i>either</i> leg (and especially in both).
+      </p>
+    </div>
+    <pre><code><span class="tok-c"># _rrf_fuse() — over-fetch fetch_k=20 from each leg, then:</span>
+entry[<span class="tok-s">"rrf_score"</span>] += <span class="tok-s">1.0</span> / (rrf_const + rank + <span class="tok-s">1</span>)   <span class="tok-c"># rrf_const = 60</span>
+<span class="tok-c"># identity = (source_path, content[:80]) so the same chunk from both legs merges</span>
+merged = <span class="tok-f">sorted</span>(fused.values(), key=<span class="tok-k">lambda</span> x: x[<span class="tok-s">"rrf_score"</span>], reverse=<span class="tok-k">True</span>)[:k]</code></pre>
+    <p class="note">
+      Each leg over-fetches <code>fetch_k=20</code> candidates; the fused list is trimmed to the
+      final <code>k=6</code> handed to the analyst. The retriever also de-duplicates on the first
+      100 characters of content before building the cited context block.
+    </p>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>Three modes</h2>
+    <p>Mode is set by <code>RETRIEVAL_MODE</code> (or the <code>mode=</code> argument). Hybrid is the default and recommended.</p>
+    <table>
+      <thead><tr><th>Mode</th><th>Legs used</th><th>Best for</th></tr></thead>
+      <tbody>
+        <tr><td><code>hybrid</code> <small class="note">default</small></td><td>dense + sparse, RRF-fused</td><td>General use — synonyms <i>and</i> exact identifiers</td></tr>
+        <tr><td><code>vector</code></td><td>dense only</td><td>Conceptual / paraphrased questions</td></tr>
+        <tr><td><code>keyword</code></td><td>sparse only</td><td>Exact codes, names, section lookups</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>Optional query-side enhancements</h2>
+    <p class="lede">
+      These add LLM round-trips, so they're <b>off by default</b> to keep retrieval fast on CPU.
+      Each is a single <code>.env</code> flag and degrades gracefully — a malformed LLM reply falls
+      back to the plain query.
+    </p>
+
+    <h3>🪄 Conversational rewrite <span class="badge on">on by default</span></h3>
+    <p>
+      Turns a follow-up like <i>"what about Q2?"</i> into a standalone query using the last few chat
+      turns, so a terse follow-up still retrieves correctly. Cheap (one short call on the fast model)
+      and used for <b>both</b> routing and retrieval. <code>retrieval.rewrite_conversational()</code>.
+    </p>
+
+    <h3>🌐 Multi-query expansion <span class="badge off">off</span></h3>
+    <p>
+      The planner LLM writes 3 paraphrases of the question; each is searched and the lists are
+      RRF-fused. Widens recall for questions that can be phrased many ways.
+      <code>RETRIEVAL_MULTI_QUERY=true</code>.
+    </p>
+
+    <h3>🧪 HyDE — Hypothetical Document Embeddings <span class="badge off">off</span></h3>
+    <p>
+      Generates a short, plausible <i>answer</i> to the question and embeds <b>that</b> alongside the
+      raw query. An answer-shaped probe often sits closer in vector space to the real answer chunk
+      than the question does. <code>RETRIEVAL_HYDE=true</code>.
+    </p>
+
+    <h3>🎯 LLM re-ranking <span class="badge off">off</span></h3>
+    <p>
+      Over-fetches, then an LLM scores each candidate 0–10 and keeps the most relevant top-k.
+      The most expensive option — covered on its own page.
+      <a href="reranking-strategy.html">Re-ranking strategy →</a>
+    </p>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>Configuration knobs</h2>
+    <div class="kv">
+      <div>RETRIEVAL_MODE</div><div>hybrid (default) · vector · keyword</div>
+      <div>RETRIEVAL_K</div><div>6 — chunks handed to the analyst</div>
+      <div>RETRIEVAL_FETCH_K</div><div>20 — over-fetch per leg before fusion/rerank</div>
+      <div>RETRIEVAL_REWRITE</div><div>true — conversational follow-up rewrite</div>
+      <div>RETRIEVAL_MULTI_QUERY</div><div>false — 3-way paraphrase expansion</div>
+      <div>RETRIEVAL_HYDE</div><div>false — hypothetical-answer probe</div>
+      <div>RETRIEVAL_RERANK</div><div>false — LLM cross-encoder re-rank</div>
+    </div>
+  </section>
+
+  <div class="pagenav">
+    <a class="prev" href="chunking-strategy.html"><span class="dir">← Prev</span><span class="ttl">Chunking Strategy</span></a>
+    <a class="next" href="reranking-strategy.html"><span class="dir">Next →</span><span class="ttl">Re-ranking Strategy</span></a>
+  </div>
+
+  <footer>🏦 Financial Agentic Platform · Retrieval deep dive</footer>
+</div>
+</body>
+</html>

@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Model Routing Strategy — Financial Agentic Platform</title>
+<link rel="stylesheet" href="strategy.css">
+</head>
+<body>
+
+<div class="crumbs">
+  <a href="../architecture.html">🏦 Architecture</a><span class="sep">›</span>
+  <a href="index.html">Strategies</a><span class="sep">›</span>
+  <span>Model Routing</span>
+</div>
+
+<header class="hero">
+  <p class="eyebrow">Strategy · Orchestration</p>
+  <h1>🔀 Model Routing Strategy</h1>
+  <p class="sub">
+    Different local models trade quality for speed. Rather than guess, the platform <b>measures</b>
+    each model offline, derives a routing <b>policy</b>, and applies it per query — fast model for
+    simple questions, strong model for complex ones, at no extra latency.
+  </p>
+  <div class="badges">
+    <span class="badge">src/agents/router.py</span>
+    <span class="badge">evals/</span>
+    <span class="badge on">enabled by default</span>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <section>
+    <h2><span class="dot"></span>The decision, made for free</h2>
+    <p class="lede">
+      The planner already classifies each query <code>SIMPLE</code> or <code>COMPLEX</code> in the
+      same call that decides routing — so complexity is known <b>before</b> the analyst runs, with
+      zero extra LLM round-trips. The router maps that label to a model.
+    </p>
+    <div class="flow">
+      <div class="step"><div class="ico">🧭</div><h5>Planner</h5><p>labels SIMPLE / COMPLEX</p></div>
+      <div class="arrow">→</div>
+      <div class="step" style="border-color:var(--orange)"><div class="ico">🔀</div><h5>Router</h5><p>complexity → model</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">✍️</div><h5>Analyst</h5><p>writes with chosen model</p></div>
+    </div>
+    <pre><code><span class="tok-c"># router.py — pick_model(): eval policy first, else complex→strong / else→fast</span>
+<span class="tok-k">def</span> <span class="tok-f">pick_model</span>(complexity):
+    policy = <span class="tok-f">load_policy</span>()
+    <span class="tok-k">if</span> policy <span class="tok-k">and</span> <span class="tok-f">isinstance</span>(policy.get(<span class="tok-s">"route"</span>), <span class="tok-f">dict</span>):
+        chosen = policy[<span class="tok-s">"route"</span>].get(complexity)
+        <span class="tok-k">if</span> chosen: <span class="tok-k">return</span> chosen
+    <span class="tok-k">return</span> <span class="tok-f">strong_model</span>() <span class="tok-k">if</span> complexity == <span class="tok-s">"complex"</span> <span class="tok-k">else</span> <span class="tok-f">fast_model</span>()</code></pre>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>Policy resolution order</h2>
+    <p>The router resolves the fast/strong pair and the route map from the first source that provides them:</p>
+    <table>
+      <thead><tr><th>#</th><th>Source</th><th>Set by</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td><code>evals/results/policy.json</code></td><td><b>Measured</b> by <code>python -m evals.run_evals</code> — wins when present</td></tr>
+        <tr><td>2</td><td><code>ROUTER_FAST_MODEL</code> / <code>ROUTER_STRONG_MODEL</code></td><td>Manual <code>.env</code> override</td></tr>
+        <tr><td>3</td><td><code>llama3.2:1b</code> / <code>qwen2.5:3b</code></td><td>Hardcoded defaults</td></tr>
+      </tbody>
+    </table>
+    <p class="note">
+      The whole feature is gated by <code>MODEL_ROUTER_ENABLED</code> (default true) and can be
+      toggled live from the Streamlit sidebar; the agent trace shows which model actually wrote each
+      answer. When routing is off, a single manually-chosen model is used everywhere.
+    </p>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>How the policy is earned — the eval harness</h2>
+    <p class="lede">
+      The route map isn't hand-written; it's the output of an offline benchmark. The harness needs
+      only Ollama (no Postgres), so model selection can be re-measured anytime.
+    </p>
+    <div class="flow">
+      <div class="step"><div class="ico">📋</div><h5>Dataset</h5><p>financial Qs<br>simple + complex<br>key points</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">🤖</div><h5>Generate</h5><p>each model answers via the real analyst prompt</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">⚖️</div><h5>Grade</h5><p>coverage + LLM-judge + latency</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">🗳️</div><h5>Policy</h5><p>per-complexity pick → policy.json</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>What gets measured</h2>
+    <h3>📐 Quality</h3>
+    <ul class="clean">
+      <li><b>Key-point coverage</b> — deterministic: the fraction of expected key points present in the
+        answer. Anchors the noisier judge signal.</li>
+      <li><b>LLM-as-judge</b> — the strongest local model rates each answer 1–5 for correctness and
+        relevance.</li>
+    </ul>
+    <h3>⏱️ Cost</h3>
+    <ul class="clean">
+      <li><b>Wall-clock latency</b> per answer (mean / p50 / p95), measured through the same
+        <code>ChatOllama</code> path the live app uses — so the numbers reflect real behavior.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>The policy rule</h2>
+    <div class="panel why">
+      <h4>🗳️ Prefer fast — unless quality clearly justifies the wait</h4>
+      <p>
+        Per complexity bucket, the harness picks the fast model <b>by default</b>, switching to the
+        strong model only when its judge-score gain exceeds <code>QUALITY_TOLERANCE</code>. Simple
+        questions (definitions, lookups) almost never clear that bar; multi-step reasoning usually
+        does. The result is written to <code>policy.json</code> with a human-readable rationale.
+      </p>
+    </div>
+    <table>
+      <thead><tr><th>Complexity</th><th>Example</th><th>Default routed model</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td><b>simple</b></td><td>"What is CPR in mortgage finance?"</td><td><code>llama3.2:1b</code> (fast)</td><td>Definitions don't need the strong model</td></tr>
+        <tr><td><b>complex</b></td><td>"Stress-test this portfolio for rate risk."</td><td><code>qwen2.5:3b</code> (strong)</td><td>Multi-step reasoning rewards quality</td></tr>
+      </tbody>
+    </table>
+    <p class="note">
+      This is the <b>code fallback</b> used when no policy file exists. The <b>measured</b> policy can
+      differ — and on the latest run it actually <i>inverts</i> this (simple → strong, complex → fast),
+      because the strong model's quality edge showed up on simple queries, not complex ones. See the
+      <a href="evals.html"><b>evals &amp; results</b></a> page for the numbers behind that.
+    </p>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>Run it yourself</h2>
+    <pre><code><span class="tok-c"># both models must be pulled first</span>
+ollama pull llama3.2:1b && ollama pull qwen2.5:3b
+
+<span class="tok-c"># measure quality vs latency and (re)derive the policy</span>
+python -m evals.run_evals            <span class="tok-c"># full run</span>
+python -m evals.run_evals --limit 5  <span class="tok-c"># quick smoke run</span>
+
+<span class="tok-c"># outputs: summary.md · results_&lt;ts&gt;.json · policy.json (picked up live)</span></code></pre>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>Configuration knobs</h2>
+    <div class="kv">
+      <div>MODEL_ROUTER_ENABLED</div><div>true — master on/off (also toggleable in the sidebar)</div>
+      <div>ROUTER_FAST_MODEL</div><div>llama3.2:1b — simple queries (env fallback)</div>
+      <div>ROUTER_STRONG_MODEL</div><div>qwen2.5:3b — complex queries (env fallback)</div>
+      <div>evals/results/policy.json</div><div>measured policy — overrides the env values when present</div>
+    </div>
+    <div class="panel tip">
+      <h4>🔌 Model-agnostic by design</h4>
+      <p>
+        Every LLM is built through <code>src/agents/llm.py</code>, so swapping or adding models — and
+        changing the router's fast/strong pair — is a config change. The agent topology never moves.
+      </p>
+    </div>
+  </section>
+
+  <div class="pagenav">
+    <a class="prev" href="prompt-optimization.html"><span class="dir">← Prev</span><span class="ttl">Prompt Optimization</span></a>
+    <a class="next" href="index.html"><span class="dir">Done →</span><span class="ttl">All strategies</span></a>
+  </div>
+
+  <footer>🏦 Financial Agentic Platform · Model routing deep dive</footer>
+</div>
+</body>
+</html>

@@ -1,8 +1,12 @@
-langchain==0.1.12
-langchain-core==0.1.32
-langchain-community==0.0.28
-langgraph==0.0.26
-streamlit==1.32.2
+# --- LLM / agent stack (LangChain 1.x — matches the working runtime) ---
+langchain==1.3.10
+langchain-core==1.4.8
+langchain-community==0.4.2
+langchain-ollama==1.1.0
+langchain-text-splitters==1.1.2
+langgraph==1.2.5
+langsmith==0.8.16
+streamlit==1.58.0
 python-dotenv==1.0.1
 pypdf==4.1.0
 pandas==2.2.1

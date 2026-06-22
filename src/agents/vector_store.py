@@ -63,9 +63,11 @@ class VectorStore:
     """pgvector-backed store. Chunks, embeddings and metadata live in Postgres."""
 
     def __init__(self):
+        # 500/100 keeps pathological char-heavy chunks (e.g. PDF ToC dot leaders)
+        # under mxbai-embed-large's 512-token context window.
         self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000,
-            chunk_overlap=200,
+            chunk_size=500,
+            chunk_overlap=100,
         )
         ensure_schema()
 
@@ -338,6 +340,31 @@ class VectorStore:
         with get_conn() as conn, conn.cursor() as cur:
             cur.execute("SELECT DISTINCT filename FROM documents ORDER BY filename;")
             return [r[0] for r in cur.fetchall()]
+
+    def sample_chunks(self, k: int = 6) -> List[Dict]:
+        """Return ``k`` chunks spread across the corpus for cold-start grounding.
+
+        Used to seed question suggestions before the user has asked anything,
+        so the proposals reflect the indexed documents rather than nothing.
+        Shape matches ``search_documents`` (``content`` + ``metadata``).
+        """
+        with get_conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT c.content, d.filename, d.source_path
+                FROM document_chunks c
+                JOIN documents d ON d.id = c.document_id
+                ORDER BY random()
+                LIMIT %s
+                """,
+                (k,),
+            )
+            rows = cur.fetchall()
+        return [
+            {"content": content,
+             "metadata": {"filename": filename, "source_path": source_path}}
+            for content, filename, source_path in rows
+        ]
 
     def known_sources(self) -> Dict[str, str]:
         """``source_path -> content_hash`` for the ingestion pipeline's

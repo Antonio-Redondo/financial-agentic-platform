@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Evals &amp; Results — Financial Agentic Platform</title>
+<link rel="stylesheet" href="strategy.css">
+<style>
+  /* Lightweight bar for inline metric comparison */
+  .bar{position:relative;background:var(--panel-2);border-radius:6px;height:20px;overflow:hidden;min-width:90px}
+  .bar > span{position:absolute;inset:0 auto 0 0;border-radius:6px;display:flex;align-items:center;padding-left:8px;font-size:.72rem;font-weight:700;color:#06121f}
+  .bar.fast > span{background:linear-gradient(90deg,var(--green),var(--cyan))}
+  .bar.strong > span{background:linear-gradient(90deg,var(--violet),var(--pink))}
+  .win{color:var(--green);font-weight:700}
+  .lose{color:var(--muted)}
+  .pol{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:14px 0}
+  @media(max-width:620px){.pol{grid-template-columns:1fr}}
+  .polcard{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px;box-shadow:var(--shadow)}
+  .polcard .cx{font-size:.74rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+  .polcard .pick{font-size:1.15rem;font-weight:800;margin:4px 0 2px}
+  .polcard.simple{border-top:3px solid var(--violet)}
+  .polcard.complex{border-top:3px solid var(--green)}
+</style>
+</head>
+<body>
+
+<div class="crumbs">
+  <a href="../architecture.html">🏦 Architecture</a><span class="sep">›</span>
+  <a href="index.html">Strategies</a><span class="sep">›</span>
+  <span>Evals &amp; Results</span>
+</div>
+
+<header class="hero">
+  <p class="eyebrow">Strategy · Measurement</p>
+  <h1>⚖️ Evals &amp; Results</h1>
+  <p class="sub">
+    Model selection is earned, not guessed. An offline harness answers a fixed set of financial
+    questions with each candidate model, grades them on quality and speed, and derives the router
+    policy from the numbers. Below is exactly how it works — and the results from the latest run.
+  </p>
+  <div class="badges">
+    <span class="badge">evals/run_evals.py</span>
+    <span class="badge">Ollama only · no Postgres</span>
+    <span class="badge">20-query dataset</span>
+    <span class="badge on">→ policy.json</span>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <section>
+    <h2><span class="dot"></span>Why an eval harness?</h2>
+    <p class="lede">
+      A 1B model is fast but shallow; a 3B model is slower but sharper — but <i>by how much, and on
+      which kinds of question?</i> Guessing wastes either latency or quality. The harness turns that
+      trade-off into data: it runs the <b>real analyst prompt</b> (imported from
+      <code>graph.analyst_prompt</code>, so the benchmark matches production) and measures each model
+      head-to-head. Crucially it needs only Ollama — it bypasses retrieval and Postgres — so model
+      choice can be re-measured anytime, and it is <a href="../architecture.html">never run at
+      startup</a> (a full pass takes many minutes).
+    </p>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>The pipeline</h2>
+    <div class="flow">
+      <div class="step"><div class="ico">📋</div><h5>Dataset</h5><p>20 financial Qs<br>10 simple · 10 complex<br>+ key points</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">🤖</div><h5>Generate</h5><p>each model answers via the real analyst prompt</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">⚖️</div><h5>Grade</h5><p>coverage + LLM-judge + latency, per query</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">🗳️</div><h5>Policy</h5><p>per-complexity model pick</p></div>
+      <div class="arrow">→</div>
+      <div class="step" style="border-color:var(--orange)"><div class="ico">💾</div><h5>Write</h5><p>policy.json · summary.md · results_&lt;ts&gt;.json</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>The dataset</h2>
+    <p>
+      20 representative mortgage/fixed-income questions in <code>evals/dataset.py</code>, each
+      labelled <b>simple</b> (definition / short factual) or <b>complex</b> (calculation, reasoning,
+      comparison, analysis) and carrying a list of <b>key points</b> a good answer should contain.
+    </p>
+    <table>
+      <thead><tr><th>id</th><th>complexity</th><th>category</th><th>question (abridged)</th><th>key points</th></tr></thead>
+      <tbody>
+        <tr><td><code>cpr-def</code></td><td>simple</td><td>definition</td><td>What is CPR in mortgage finance?</td><td>conditional prepayment rate · annual · prepay</td></tr>
+        <tr><td><code>bps-def</code></td><td>simple</td><td>factual</td><td>What is a basis point?</td><td>0.01 · percent · hundredth</td></tr>
+        <tr><td><code>smm-to-cpr-calc</code></td><td>complex</td><td>calculation</td><td>SMM 1% → annualized CPR? Show the formula.</td><td>1 − (1 − smm) · 12 · 11</td></tr>
+        <tr><td><code>stress-test</code></td><td>complex</td><td>analysis</td><td>Stress-test a mortgage portfolio for rate risk.</td><td>scenario · shock · duration · convexity</td></tr>
+        <tr><td><code>treasury-rate-risk</code></td><td>complex</td><td>comparison</td><td>2-year vs 10-year Treasury rate risk.</td><td>longer · duration · sensitiv</td></tr>
+      </tbody>
+    </table>
+    <p class="note">5 of 20 shown. Every item is answerable from general financial knowledge — no uploaded documents — which is what lets the harness skip Postgres.</p>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>How answers are graded</h2>
+    <p class="lede">Two quality signals plus a cost signal, captured per query.</p>
+
+    <h3>📐 Key-point coverage <small class="note">— deterministic</small></h3>
+    <p>
+      The fraction of expected key points found in the answer as normalized substrings
+      (<code>metrics.key_point_coverage</code>). No model in the loop, so it's stable and repeatable
+      — it <b>anchors</b> the noisier judge. Phrasing-tolerant by design (key points are stems like
+      <code>"securit"</code>, <code>"refinanc"</code>).
+    </p>
+
+    <h3>⚖️ LLM-as-judge <small class="note">— 1 to 5</small></h3>
+    <p>
+      The strongest local model scores each answer 1–5 for correctness and relevance against the
+      question and its key points (<code>judge.py</code>). The prompt is deliberately strict and asks
+      for <i>only a single integer</i>; an empty answer scores 1, a parse failure defaults to 3.
+    </p>
+    <pre><code><span class="tok-c"># judge.py — the rubric the judge model is held to</span>
+<span class="tok-s">"  5 = fully correct, directly answers, no errors\n"</span>
+<span class="tok-s">"  4 = mostly correct and relevant, minor gaps\n"</span>
+<span class="tok-s">"  3 = partially correct or incomplete\n"</span>
+<span class="tok-s">"  2 = largely wrong or off-topic\n"</span>
+<span class="tok-s">"  1 = incorrect, irrelevant, or empty\n"</span></code></pre>
+
+    <h3>⏱️ Latency <small class="note">— cost</small></h3>
+    <p>
+      Wall-clock seconds per answer (mean / p50 / p95), timed through the same
+      <code>ChatOllama</code> path the app uses, so the numbers reflect real CPU behavior.
+    </p>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>How the policy is derived</h2>
+    <div class="panel why">
+      <h4>🗳️ Prefer cheap — unless quality clearly justifies the wait</h4>
+      <p>
+        <code>derive_policy()</code> picks <b>fast</b> = lowest mean latency and <b>strong</b> =
+        highest mean judge. Then, <i>per complexity bucket</i>, it routes to the fast model
+        <b>unless</b> the strong model's judge advantage on that bucket exceeds
+        <code>QUALITY_TOLERANCE</code> (default <code>0.4</code> on the 1–5 scale). The result is a
+        route map — not a blanket "use the big model for hard things."
+      </p>
+    </div>
+    <pre><code><span class="tok-c"># run_evals.py — derive_policy(), per complexity cx</span>
+jf, js = mean_judge(fast, cx), mean_judge(strong, cx)
+<span class="tok-k">if</span> (js - jf) <span class="tok-f">&lt;=</span> tolerance:  route[cx] = fast     <span class="tok-c"># quality gain too small → save time</span>
+<span class="tok-k">else</span>:                      route[cx] = strong   <span class="tok-c"># quality gain worth the latency</span></code></pre>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>Latest results</h2>
+    <p class="note">
+      Run <code>2026-06-18 09:19:02</code> · 20 queries · judge <code>qwen2.5:3b</code> ·
+      <code>num_predict 320</code> · source <code>evals/results/results_20260618-091902.json</code>.
+    </p>
+
+    <h3>Overall, per model</h3>
+    <table>
+      <thead><tr><th>Model</th><th>n</th><th>judge (1–5)</th><th>coverage</th><th>latency mean</th><th>p95</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>llama3.2:1b</code> <small class="note">fast</small></td><td>20</td>
+          <td><span class="lose">2.55</span></td>
+          <td class="lose">0.667</td>
+          <td><span class="win">63.8s</span></td><td>86.6s</td>
+        </tr>
+        <tr>
+          <td><code>qwen2.5:3b</code> <small class="note">strong</small></td><td>20</td>
+          <td><span class="win">3.15</span></td>
+          <td class="win">0.696</td>
+          <td>90.8s</td><td>136.0s</td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="note">Overall: the 3B model wins on quality (+0.60 judge) but costs ~43% more latency. The interesting story is <i>where</i> that quality edge actually lands ↓</p>
+
+    <h3>By complexity — the decisive split</h3>
+    <table>
+      <thead><tr><th>Model</th><th>complexity</th><th>judge</th><th>coverage</th><th>latency mean</th></tr></thead>
+      <tbody>
+        <tr><td><code>llama3.2:1b</code></td><td>simple</td><td>2.50</td><td>0.767</td><td>65.0s</td></tr>
+        <tr><td><code>qwen2.5:3b</code></td><td>simple</td><td><span class="win">3.60</span></td><td><span class="win">0.800</span></td><td><span class="win">58.4s</span></td></tr>
+        <tr><td colspan="5" style="border-top:2px solid var(--line);padding:4px 0"></td></tr>
+        <tr><td><code>llama3.2:1b</code></td><td>complex</td><td>2.60</td><td>0.567</td><td><span class="win">62.6s</span></td></tr>
+        <tr><td><code>qwen2.5:3b</code></td><td>complex</td><td>2.70</td><td>0.592</td><td>123.2s</td></tr>
+      </tbody>
+    </table>
+
+    <div class="panel warn">
+      <h4>🔬 The counterintuitive — and correct — outcome</h4>
+      <p>
+        The naïve assumption is "small model for simple, big model for complex." The data says the
+        <b>opposite</b>:
+      </p>
+      <ul class="clean">
+        <li><b>Simple → <span class="win">qwen2.5:3b</span> (strong).</b> Its judge gain is large
+          (3.60 vs 2.50, <code>Δ +1.10 &gt; 0.4</code>) <i>and</i> it's actually <b>faster</b> here
+          (58s vs 65s). Strictly better — easy call.</li>
+        <li><b>Complex → <span class="win">llama3.2:1b</span> (fast).</b> On hard questions the strong
+          model's edge <b>evaporates</b> (2.70 vs 2.60, <code>Δ +0.10 ≤ 0.4</code>) while costing
+          nearly <b>2×</b> the latency (123s vs 63s). Paying double for a rounding-error of quality
+          isn't worth it — keep the cheap model.</li>
+      </ul>
+      <p>
+        Both 3B and 1B struggle on the complex set (neither clears judge 3 / coverage ~0.6), so
+        there's no quality to buy there. This is exactly why the policy is <b>measured, not
+        assumed</b> — and why <a href="model-routing-strategy.html">the router</a> reads it from
+        <code>policy.json</code> instead of a hardcoded rule.
+      </p>
+    </div>
+
+    <h3>Derived policy</h3>
+    <div class="pol">
+      <div class="polcard simple">
+        <div class="cx">Simple queries →</div>
+        <div class="pick">🧠 qwen2.5:3b <small class="note">strong</small></div>
+        <small class="note">Δjudge +1.10 &gt; 0.4 tolerance — and faster too</small>
+      </div>
+      <div class="polcard complex">
+        <div class="cx">Complex queries →</div>
+        <div class="pick">⚡ llama3.2:1b <small class="note">fast</small></div>
+        <small class="note">Δjudge +0.10 ≤ 0.4 tolerance — save the latency</small>
+      </div>
+    </div>
+    <pre><code><span class="tok-c">// evals/results/policy.json — read live by the router</span>
+{
+  <span class="tok-f">"fast_model"</span>:   <span class="tok-s">"llama3.2:1b"</span>,
+  <span class="tok-f">"strong_model"</span>: <span class="tok-s">"qwen2.5:3b"</span>,
+  <span class="tok-f">"route"</span>: { <span class="tok-f">"simple"</span>: <span class="tok-s">"qwen2.5:3b"</span>, <span class="tok-f">"complex"</span>: <span class="tok-s">"llama3.2:1b"</span> },
+  <span class="tok-f">"quality_tolerance"</span>: <span class="tok-s">0.4</span>,
+  <span class="tok-f">"rationale"</span>: <span class="tok-s">"simple: qwen2.5:3b (Δjudge +1.10 > 0.4); complex: llama3.2:1b (Δjudge +0.10 ≤ 0.4)"</span>
+}</code></pre>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>A few per-query rows</h2>
+    <p class="note">Spot-checks from the run — judge (1–5), coverage (0–1), latency (s).</p>
+    <table>
+      <thead><tr><th>query</th><th>cx</th><th colspan="3">llama3.2:1b</th><th colspan="3">qwen2.5:3b</th></tr>
+        <tr><th></th><th></th><th>judge</th><th>cov</th><th>s</th><th>judge</th><th>cov</th><th>s</th></tr></thead>
+      <tbody>
+        <tr><td><code>ytm-def</code></td><td>simple</td><td>3</td><td>1.00</td><td>53.7</td><td class="win">5</td><td>1.00</td><td>56.8</td></tr>
+        <tr><td><code>ltv-def</code></td><td>simple</td><td>3</td><td>1.00</td><td>53.7</td><td class="win">5</td><td>1.00</td><td>66.7</td></tr>
+        <tr><td><code>prepay-risk-def</code></td><td>simple</td><td>3</td><td>0.67</td><td>65.1</td><td class="win">4</td><td>0.67</td><td><span class="win">26.9</span></td></tr>
+        <tr><td><code>duration-price-calc</code></td><td>complex</td><td>2</td><td>0.67</td><td>62.8</td><td class="win">4</td><td>1.00</td><td>73.6</td></tr>
+        <tr><td><code>prepay-wal</code></td><td>complex</td><td class="win">4</td><td>1.00</td><td><span class="win">64.9</span></td><td>3</td><td>1.00</td><td>129.9</td></tr>
+        <tr><td><code>stress-test</code></td><td>complex</td><td class="win">3</td><td>0.25</td><td>86.6</td><td>2</td><td>0.50</td><td>134.0</td></tr>
+      </tbody>
+    </table>
+    <p class="note">Note <code>prepay-wal</code> and <code>stress-test</code>: on these complex items the 1B model actually scored the <i>same or higher</i> judge, at half the latency — the per-query texture behind the complex-bucket policy.</p>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>Run it yourself</h2>
+    <pre><code><span class="tok-c"># both models must be pulled first</span>
+ollama pull llama3.2:1b && ollama pull qwen2.5:3b
+
+python -m evals.run_evals                       <span class="tok-c"># full 20-query run</span>
+python -m evals.run_evals --limit 5             <span class="tok-c"># quick smoke run</span>
+python -m evals.run_evals \
+  --models llama3.2:1b,qwen2.5:3b \
+  --judge qwen2.5:3b --num-predict 320 \
+  --quality-tolerance 0.4</code></pre>
+    <table>
+      <thead><tr><th>Output file</th><th>What it is</th></tr></thead>
+      <tbody>
+        <tr><td><code>evals/results/policy.json</code></td><td>The route map — read live by the router (overwritten each run)</td></tr>
+        <tr><td><code>evals/results/summary.md</code></td><td>Human-readable tables (overall + by-complexity + policy)</td></tr>
+        <tr><td><code>evals/results/results_&lt;ts&gt;.json</code></td><td>Full record: config, policy, per-model aggregates, every per-query row</td></tr>
+      </tbody>
+    </table>
+    <div class="kv">
+      <div>--models</div><div>comma-separated Ollama models to compare (default llama3.2:1b, qwen2.5:3b)</div>
+      <div>--judge</div><div>judge model (default: the last/strongest entry in --models)</div>
+      <div>--num-predict</div><div>max answer tokens per generation — bounds runtime (default 384)</div>
+      <div>--limit</div><div>evaluate only the first N queries (0 = all)</div>
+      <div>--quality-tolerance</div><div>max judge gain before preferring the strong model (default 0.4)</div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>Caveats &amp; how to read these numbers</h2>
+    <ul class="clean">
+      <li><b>The judge is a small local model.</b> A 3B judge is noisy and can favor verbosity — which
+        is exactly why deterministic coverage is reported alongside it as an anchor.</li>
+      <li><b>Latency is CPU- and machine-dependent.</b> Absolute seconds reflect this run's hardware;
+        the <i>relative</i> gap between models is the durable signal.</li>
+      <li><b>One run, n=10 per bucket.</b> Small samples — a borderline <code>Δjudge</code> near the
+        tolerance can flip between runs. Re-run before trusting a close call.</li>
+      <li><b>The judge can grade itself.</b> Here <code>qwen2.5:3b</code> judges its own answers; treat
+        its absolute scores with appropriate skepticism.</li>
+      <li><b>Tune the tolerance to your priorities.</b> Lower it to favor quality, raise it to favor
+        speed — the whole policy pivots on that one knob.</li>
+    </ul>
+  </section>
+
+  <div class="pagenav">
+    <a class="prev" href="model-routing-strategy.html"><span class="dir">← Related</span><span class="ttl">Model Routing Strategy</span></a>
+    <a class="next" href="index.html"><span class="dir">Done →</span><span class="ttl">All strategies</span></a>
+  </div>
+
+  <footer>🏦 Financial Agentic Platform · Evals deep dive · numbers from evals/results/results_20260618-091902.json</footer>
+</div>
+</body>
+</html>

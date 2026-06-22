@@ -6,7 +6,6 @@ import os
 import json
 from dotenv import load_dotenv
 from datetime import datetime
-import time
 
 # Make stdout/stderr UTF-8 so emoji log lines don't crash on Windows consoles
 # (default cp1252 raises UnicodeEncodeError on 🧭/🔎/✍️ etc.)
@@ -23,183 +22,180 @@ if project_root not in sys.path:
 
 from src.agents.financial_agent import FinancialAgent
 from src.ingestion.pipeline import ingest_file, save_upload
+from src import observability
 
 load_dotenv()
+# Honour the LANGSMITH_* env block now that .env is loaded; logs once whether
+# traces will upload. Tracing itself is handled automatically by LangChain.
+observability.configure()
 
-# Enhanced page configuration
 st.set_page_config(
-    page_title="Financial Forecast AI | Prepayment Analytics",
+    page_title="Financial Agentic Platform | Prepayment Analytics",
     page_icon="🏦",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
-# Custom CSS for modern styling
+# Icons for the file-type chips in the sidebar.
+FILE_ICONS = {
+    "PDF": "📕",
+    "DOC": "📘", "DOCX": "📘",
+    "XLS": "📊", "XLSX": "📊", "CSV": "📊",
+    "PPT": "📽️", "PPTX": "📽️",
+    "TXT": "📝", "MD": "📝", "RTF": "📝",
+    "HTML": "🌐", "HTM": "🌐", "XML": "🌐",
+    "JSON": "🗂️",
+}
+SUPPORTED_TYPES = ["pdf", "docx", "doc", "txt", "rtf", "csv", "xlsx", "xls",
+                   "pptx", "ppt", "html", "htm", "xml", "json", "md"]
+
+
+# ---------------------------------------------------------------------------
+# Styling
+# ---------------------------------------------------------------------------
 def load_custom_css():
-    st.markdown("""
+    """Light, theme-aware styling.
+
+    Everything that needs a surface colour uses Streamlit's own theme custom
+    properties (``--background-color`` / ``--secondary-background-color`` /
+    ``--text-color``) so the UI stays legible in both the light and dark
+    themes instead of painting hard-coded white cards that vanish on dark.
+    """
+    st.markdown(
+        """
     <style>
-    /* Main theme and background */
-    .main {
-        padding-top: 2rem;
+    :root {
+        --fa-accent: #2563eb;
+        --fa-accent-soft: rgba(37, 99, 235, 0.12);
+        --fa-border: rgba(128, 128, 128, 0.25);
     }
-    
-    /* Header styling */
-    .main-header {
-        background: linear-gradient(90deg, #1e3a8a 0%, #3b82f6 50%, #06b6d4 100%);
-        padding: 2rem;
-        border-radius: 10px;
-        margin-bottom: 2rem;
-        color: white;
-        text-align: center;
+
+    /* Tighten the default top padding so the header sits up high. */
+    .block-container { padding-top: 1.6rem; padding-bottom: 6rem; }
+
+    /* App header band — its own coloured surface, so it reads on any theme. */
+    .app-header {
+        background: linear-gradient(120deg, #0f172a 0%, #1e3a8a 55%, #2563eb 100%);
+        padding: 1.4rem 1.75rem;
+        border-radius: 14px;
+        margin-bottom: 1.25rem;
+        color: #f8fafc;
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        box-shadow: 0 6px 24px rgba(15, 23, 42, 0.18);
     }
-    
-    .main-header h1 {
-        margin: 0;
-        font-size: 2.5rem;
-        font-weight: 700;
-    }
-    
-    .main-header p {
-        margin: 0.5rem 0 0 0;
-        font-size: 1.2rem;
-        opacity: 0.9;
-    }
-    
-    /* Metrics cards */
-    .metric-card {
-        background: white;
-        padding: 1.5rem;
-        border-radius: 10px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        border-left: 4px solid #3b82f6;
-        margin-bottom: 1rem;
-    }
-    
-    /* Chat message styling */
-    .chat-message {
-        padding: 1rem;
-        border-radius: 10px;
-        margin-bottom: 1rem;
-        border-left: 4px solid #3b82f6;
-    }
-    
-    .user-message {
-        background-color: #eff6ff;
-        border-left-color: #3b82f6;
-    }
-    
-    .assistant-message {
-        background-color: #f0fdf4;
-        border-left-color: #10b981;
-    }
-    
-    /* Sidebar styling */
-    .sidebar .sidebar-content {
-        background-color: #f8fafc;
-    }
-    
-    /* Upload area styling */
-    .upload-area {
-        border: 2px dashed #cbd5e1;
-        border-radius: 10px;
-        padding: 2rem;
-        text-align: center;
-        background-color: #f8fafc;
-        margin-bottom: 1rem;
-    }
-    
-    /* Analysis results styling */
-    .analysis-section {
-        background: white;
-        padding: 1.5rem;
-        border-radius: 10px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        margin-bottom: 1rem;
-    }
-    
-    /* Status indicators */
-    .status-success {
-        color: #10b981;
+    .app-header .app-mark { font-size: 2.4rem; line-height: 1; }
+    .app-header h1 { margin: 0; font-size: 1.55rem; font-weight: 700; letter-spacing: -0.01em; }
+    .app-header p  { margin: 0.15rem 0 0 0; font-size: 0.95rem; opacity: 0.82; }
+
+    /* Status pill used in the header. */
+    .fa-pill {
+        margin-left: auto;
+        font-size: 0.8rem;
         font-weight: 600;
+        padding: 0.3rem 0.8rem;
+        border-radius: 999px;
+        background: rgba(248, 250, 252, 0.15);
+        border: 1px solid rgba(248, 250, 252, 0.25);
+        white-space: nowrap;
     }
-    
-    .status-warning {
-        color: #f59e0b;
-        font-weight: 600;
+
+    /* File chip in the sidebar (theme-aware surface). */
+    .fa-chip {
+        background: var(--secondary-background-color);
+        border: 1px solid var(--fa-border);
+        border-radius: 8px;
+        padding: 0.5rem 0.7rem;
+        margin: 0.3rem 0;
+        font-size: 0.86rem;
     }
-    
-    .status-error {
-        color: #ef4444;
-        font-weight: 600;
-    }
-    
-    /* Button styling */
+    .fa-chip small { opacity: 0.65; }
+    .fa-chip.ok   { border-left: 3px solid #10b981; }
+    .fa-chip.warn { border-left: 3px solid #f59e0b; }
+
+    /* Primary buttons: flat, professional, subtle hover. */
     .stButton > button {
-        width: 100%;
-        border-radius: 10px;
-        border: none;
-        background: linear-gradient(90deg, #3b82f6, #1d4ed8);
-        color: white;
+        border-radius: 9px;
         font-weight: 600;
-        padding: 0.75rem 1.5rem;
-        transition: all 0.3s ease;
+        transition: transform 0.12s ease, box-shadow 0.12s ease;
     }
-    
     .stButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+        transform: translateY(-1px);
+        box-shadow: 0 4px 14px rgba(37, 99, 235, 0.22);
     }
-    
-    /* Hide Streamlit branding */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
+
+    /* Chat bubbles a touch more padded. */
+    .stChatMessage { padding-top: 0.25rem; padding-bottom: 0.25rem; }
+
+    /* Hide default Streamlit chrome for a cleaner app feel. */
+    #MainMenu { visibility: hidden; }
+    footer    { visibility: hidden; }
     </style>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
+
 
 def create_header():
-    st.markdown("""
-    <div class="main-header">
-        <h1>🏦 Financial Forecast AI</h1>
-        <p>Advanced Prepayment Analytics & Risk Assessment Platform</p>
+    agent = st.session_state.get("agent")
+    if agent is None:
+        pill = "⚠️ Agent offline"
+    elif agent.use_router:
+        pill = "🟢 Auto-routing on"
+    else:
+        pill = f"🟢 {agent.model}"
+    st.markdown(
+        f"""
+    <div class="app-header">
+        <span class="app-mark">🏦</span>
+        <div>
+            <h1>Financial Agentic Platform</h1>
+            <p>Prepayment analytics &amp; risk assessment · multi-agent RAG</p>
+        </div>
+        <span class="fa-pill">{pill}</span>
     </div>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
 
-def create_metrics_dashboard():
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.metric(
-            label="📊 Documents Processed",
-            value=len(st.session_state.get("processed_docs", [])),
-            delta=None
-        )
-    
-    with col2:
-        agent = st.session_state.get("agent")
+
+def render_metrics():
+    """Compact KPI strip rendered in theme-aware bordered containers."""
+    agent = st.session_state.get("agent")
+    c1, c2, c3, c4 = st.columns(4)
+
+    with c1, st.container(border=True):
+        st.metric("📁 Documents", len(st.session_state.get("processed_docs", [])))
+
+    with c2, st.container(border=True):
         if agent and agent.use_router:
             from src.agents import router as _router
-            model_label = f"Auto: {_router.fast_model()} ⇄ {_router.strong_model()}"
-            model_delta = "Model router · LangGraph"
+            st.metric("🤖 Model", "Auto-route",
+                      delta=f"{_router.fast_model()} ⇄ {_router.strong_model()}",
+                      delta_color="off")
         else:
             model_label = agent.model if agent else os.getenv("OLLAMA_MODEL", "llama3.2:1b")
-            model_delta = "Multi-agent · LangGraph"
-        st.metric(label="🤖 AI Model", value=model_label, delta=model_delta)
-    
-    with col3:
-        st.metric(
-            label="💬 Messages",
-            value=len(st.session_state.get("messages", [])),
-            delta=None
-        )
-    
-    with col4:
-        st.metric(
-            label="🎯 Status",
-            value="Ready",
-            delta=None
-        )
+            st.metric("🤖 Model", model_label, delta="Manual", delta_color="off")
 
+    with c3, st.container(border=True):
+        st.metric("💬 Messages", len(st.session_state.get("messages", [])))
+
+    with c4, st.container(border=True):
+        if agent and agent.vector_store:
+            try:
+                stats = agent.get_document_stats()
+                st.metric("🧩 Indexed chunks", stats["total_chunks"],
+                          delta=f"{stats['unique_documents']} docs", delta_color="off")
+            except Exception:
+                st.metric("🧩 Indexed chunks", "—")
+        else:
+            st.metric("🧩 Indexed chunks", "—")
+
+
+# ---------------------------------------------------------------------------
+# Sidebar
+# ---------------------------------------------------------------------------
 def get_available_models():
     """List models available from the local Ollama server (empty on failure)."""
     base = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
@@ -223,8 +219,8 @@ def model_selector():
     agent = st.session_state.get("agent")
     routing_on = bool(agent and agent.use_router)
 
-    new_routing = st.checkbox(
-        "🧭 Auto model routing (fast ⇄ strong)",
+    new_routing = st.toggle(
+        "Auto model routing",
         value=routing_on,
         help="On: a planner step labels each query SIMPLE or COMPLEX and routes "
              "it to the fast or strong model. Off: all queries use the model "
@@ -248,7 +244,7 @@ def model_selector():
         options = [current] + options  # always show the active model
 
     selected = st.selectbox(
-        "🤖 Model",
+        "Model",
         options,
         index=options.index(current),
         help="Pulled Ollama models. Smaller models are faster; larger ones give "
@@ -263,191 +259,170 @@ def model_selector():
         st.rerun()
 
 
+def _file_chip(name: str, subtitle: str, status: str = ""):
+    """Render a small theme-aware file row. status: '' | 'ok' | 'warn'."""
+    ext = name.split(".")[-1].upper()
+    icon = FILE_ICONS.get(ext, "📄")
+    cls = f"fa-chip {status}".strip()
+    st.markdown(
+        f'<div class="{cls}">{icon} {name}<br><small>{subtitle}</small></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def sidebar_documents(agent):
+    docs_dir = agent.documents_dir if agent else os.path.abspath("./data/documents")
+    st.caption(
+        "Files placed in the drop folder are auto-ingested into pgvector on "
+        "startup. Uploads below land in the same folder."
+    )
+    st.code(docs_dir, language=None)
+
+    if agent and st.button("🔄 Re-scan drop folder", width="stretch"):
+        with st.spinner("Scanning + embedding new files…"):
+            result = agent.rescan_documents()
+        st.success(
+            f"Scanned {result.scanned} · ingested {result.ingested} · "
+            f"unchanged {result.skipped_unchanged} · empty {result.skipped_empty} · "
+            f"errors {len(result.errors)}"
+        )
+        for err in result.errors[:5]:
+            st.warning(err)
+
+    st.divider()
+
+    uploaded_files = st.file_uploader(
+        "Upload documents",
+        accept_multiple_files=True,
+        type=SUPPORTED_TYPES,
+        help="Supported: PDF, DOCX/DOC, XLSX/XLS, PPTX/PPT, TXT/RTF/MD, "
+             "HTML/XML, CSV/JSON.",
+    )
+
+    if uploaded_files:
+        for file in uploaded_files:
+            size_kb = len(file.getvalue()) / 1024
+            ext = file.name.split(".")[-1].upper()
+            _file_chip(file.name, f"{ext} · {size_kb:.1f} KB")
+        if st.button("🚀 Process documents", type="primary", width="stretch"):
+            process_documents(uploaded_files)
+
+    if st.session_state.get("processed_docs"):
+        st.divider()
+        st.markdown("**Processed this session**")
+        for doc in st.session_state.processed_docs:
+            indexed = doc.get("indexed", False)
+            ext = doc["name"].split(".")[-1].upper()
+            size_kb = doc["size"] / 1024
+            detail = (f"Indexed · {doc.get('chunks_created', 0)} chunks"
+                      if indexed else "Not indexed")
+            _file_chip(doc["name"], f"{ext} · {detail} · {size_kb:.1f} KB",
+                       status="ok" if indexed else "warn")
+
+
+def sidebar_search(agent):
+    """Document search tester, using a form so results survive reruns."""
+    if not (agent and agent.vector_store):
+        st.info("Vector store unavailable.")
+        return
+
+    with st.form("doc_search", clear_on_submit=False):
+        query = st.text_input("Search indexed documents", value="financial")
+        submitted = st.form_submit_button("🔍 Search", width="stretch")
+
+    if submitted:
+        try:
+            results = agent.vector_store.search_documents(query, k=5)
+            st.session_state["search_results"] = {"query": query, "results": results}
+        except Exception as e:
+            st.error(f"Search failed: {e}")
+            st.session_state.pop("search_results", None)
+
+    payload = st.session_state.get("search_results")
+    if payload:
+        results = payload["results"]
+        if not results:
+            st.warning(f"No matches for “{payload['query']}”.")
+        else:
+            st.success(f"{len(results)} chunk(s) for “{payload['query']}”")
+            for i, r in enumerate(results, 1):
+                src = r.get("metadata", {}).get("filename", "unknown")
+                score = r.get("relevance_score", 0)
+                with st.expander(f"{i}. {src} · relevance {score:.2f}"):
+                    st.write(r.get("content", "")[:600])
+
+
 def create_sidebar():
+    agent = st.session_state.get("agent")
     with st.sidebar:
-        st.markdown("### 📁 Document Management")
+        st.markdown("## 🏦 Control Panel")
+        if agent is None:
+            st.error("Agent failed to start — check DATABASE_URL and Ollama.")
 
-        # Auto-ingest folder controls — drop files here to have them indexed
-        # into pgvector on next startup or "Re-scan" click.
-        agent = st.session_state.get("agent")
-        docs_dir = agent.documents_dir if agent else os.path.abspath("./data/documents")
-        st.caption(
-            "📂 Drop folder: `" + docs_dir + "`  \n"
-            "Files placed here are auto-ingested into pgvector on startup."
-        )
-        if agent and st.button("🔄 Re-scan documents folder", use_container_width=True):
-            with st.spinner("Scanning + embedding new files…"):
-                result = agent.rescan_documents()
-            st.success(
-                f"Scanned {result.scanned} file(s) — ingested {result.ingested}, "
-                f"unchanged {result.skipped_unchanged}, empty {result.skipped_empty}, "
-                f"errors {len(result.errors)}"
+        tab_docs, tab_model, tab_search = st.tabs(["📁 Documents", "⚙️ Model", "🔍 Search"])
+
+        with tab_docs:
+            sidebar_documents(agent)
+
+        with tab_model:
+            model_selector()
+            st.divider()
+            st.selectbox(
+                "Analysis focus",
+                ["Comprehensive", "Prepayment Focus", "Risk Assessment", "Market Analysis"],
+                key="analysis_type",
+                help="Framing hint shown in the UI for this session.",
             )
-            for err in result.errors[:5]:
-                st.warning(err)
+            st.slider(
+                "Confidence threshold", 0.5, 1.0, 0.8, 0.05,
+                key="confidence_threshold",
+                help="Minimum confidence level surfaced for predictions.",
+            )
+            st.divider()
+            if observability.tracing_enabled():
+                project = os.getenv("LANGSMITH_PROJECT", "default")
+                st.caption(f"🔭 LangSmith tracing **on** · project `{project}`")
+            else:
+                st.caption("🔭 LangSmith tracing off — enable it in `.env` "
+                           "(`LANGSMITH_TRACING=true`).")
 
-        st.markdown("---")
+        with tab_search:
+            sidebar_search(agent)
 
-        # Upload section with better styling
-        st.markdown('<div class="upload-area">', unsafe_allow_html=True)
-        uploaded_files = st.file_uploader(
-            "📄 Upload Financial Documents",
-            accept_multiple_files=True,
-            type=["pdf", "docx", "doc", "txt", "rtf", "csv", "xlsx", "xls", "pptx", "ppt", "html", "htm", "xml", "json", "md"],
-            help="Uploads are saved into the drop folder above and ingested into pgvector. Supported: PDF, DOCX/DOC, XLSX/XLS, PPTX/PPT, TXT/RTF/MD, HTML/XML, CSV/JSON."
-        )
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        if uploaded_files:
-            st.markdown("#### 📋 Uploaded Files")
-            for i, file in enumerate(uploaded_files):
-                file_size = len(file.getvalue()) / 1024  # KB
-                file_extension = file.name.split('.')[-1].upper()
-                
-                # Choose icon based on file type
-                if file_extension in ['PDF']:
-                    icon = "📕"
-                elif file_extension in ['DOCX', 'DOC']:
-                    icon = "📘"
-                elif file_extension in ['XLSX', 'XLS', 'CSV']:
-                    icon = "📊"
-                elif file_extension in ['PPTX', 'PPT']:
-                    icon = "📽️"
-                elif file_extension in ['TXT', 'MD', 'RTF']:
-                    icon = "📝"
-                elif file_extension in ['HTML', 'HTM', 'XML']:
-                    icon = "🌐"
-                elif file_extension in ['JSON']:
-                    icon = "📋"
-                else:
-                    icon = "📄"
-                
-                st.markdown(f"""
-                <div style="background: #f0fdf4; padding: 0.5rem; border-radius: 5px; margin: 0.25rem 0;">
-                    {icon} {file.name}<br>
-                    <small style="color: #6b7280;">Type: {file_extension} | Size: {file_size:.1f} KB</small>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            if st.button("🚀 Process Documents", type="primary"):
-                process_documents(uploaded_files)
-        
-        # Show processed documents status
-        if st.session_state.get("processed_docs"):
-            st.markdown("#### 📊 Processed Documents")
-            for doc in st.session_state.processed_docs:
-                icon = "✅" if doc.get("indexed", False) else "⚠️"
-                chunks = doc.get("chunks_created", 0)
-                file_ext = doc['name'].split('.')[-1].upper()
-                
-                st.markdown(f"""
-                <div style="background: #f8fafc; padding: 0.5rem; border-radius: 5px; margin: 0.25rem 0; border-left: 3px solid {'#10b981' if doc.get('indexed') else '#f59e0b'};">
-                    {icon} {doc['name']}<br>
-                    <small style="color: #6b7280;">
-                        Type: {file_ext} | 
-                        {'Indexed: ' + str(chunks) + ' chunks' if doc.get('indexed') else 'Not indexed'} | 
-                        Size: {doc['size'] / 1024:.1f} KB | 
-                        Content: {len(doc.get('content', '')):.0f} chars
-                    </small>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            # Add document search test
-            if st.button("🔍 Test Document Search", help="Test if documents are searchable"):
-                if st.session_state.agent and st.session_state.agent.vector_store:
-                    try:
-                        stats = st.session_state.agent.get_document_stats()
-                        st.success(f"📊 Document Stats: {stats['total_chunks']} chunks from {stats['unique_documents']} documents in {stats['storage_type']} storage")
-                        
-                        # Show all documents info for debugging
-                        if hasattr(st.session_state.agent.vector_store, 'get_all_documents_info'):
-                            all_docs = st.session_state.agent.vector_store.get_all_documents_info()
-                            if all_docs:
-                                with st.expander("📋 All Stored Documents (Debug Info)"):
-                                    for i, doc_info in enumerate(all_docs, 1):
-                                        st.text(f"Document {i}:")
-                                        st.text(f"  Filename: {doc_info.get('filename', 'unknown')}")
-                                        st.text(f"  Content Length: {doc_info.get('content_length', 0)} chars")
-                                        st.text(f"  Preview: {doc_info.get('content_preview', 'No preview')}")
-                                        st.text("---")
-                        
-                        # Test search with user input
-                        test_query = st.text_input("🔍 Test search query:", value="financial", help="Enter a word to search for in your documents")
-                        if st.button("Search Documents"):
-                            test_results = st.session_state.agent.vector_store.search_documents(test_query, k=5)
-                            if test_results:
-                                st.success(f"🔍 Search Test: Found {len(test_results)} relevant chunks for '{test_query}'")
-                                with st.expander("Preview search results"):
-                                    for i, result in enumerate(test_results, 1):
-                                        st.text(f"Result {i} (Relevance: {result.get('relevance_score', 0):.2f}):")
-                                        st.text(f"Source: {result.get('metadata', {}).get('filename', 'unknown')}")
-                                        st.text(f"Content: {result.get('content', '')[:300]}...")
-                                        st.text("---")
-                            else:
-                                st.warning(f"🔍 Search Test: No results found for '{test_query}' - documents may not contain this content")
-                        
-                    except Exception as e:
-                        st.error(f"❌ Error testing document search: {str(e)}")
-                else:
-                    st.error("❌ Vector store not available")
-        
-        st.markdown("---")
-        
-        # Analysis options
-        st.markdown("### ⚙️ Analysis Settings")
+        st.divider()
+        if st.button("🧹 Clear conversation", width="stretch"):
+            st.session_state.messages = []
+            st.session_state.pop("search_results", None)
+            st.session_state.pop("suggestions", None)
+            st.session_state.pop("suggestions_sig", None)
+            st.rerun()
+        st.caption("Chat history persists for the duration of this session.")
 
-        model_selector()
 
-        analysis_type = st.selectbox(
-            "Analysis Type",
-            ["Comprehensive", "Prepayment Focus", "Risk Assessment", "Market Analysis"],
-            help="Choose the type of analysis to perform"
-        )
-        
-        confidence_threshold = st.slider(
-            "Confidence Threshold",
-            min_value=0.5,
-            max_value=1.0,
-            value=0.8,
-            step=0.05,
-            help="Minimum confidence level for predictions"
-        )
-        
-        st.markdown("---")
-        
-        # Analysis info
-        st.markdown("### ℹ️ Session Info")
-        st.info("� Chat history is automatically saved and will persist throughout your session.")
-
+# ---------------------------------------------------------------------------
+# Documents
+# ---------------------------------------------------------------------------
 def process_documents(uploaded_files):
-    """Process uploaded documents and save to vector database"""
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-
+    """Process uploaded documents and save them to the vector database."""
     agent = st.session_state.agent
     vector_store = agent.vector_store if agent else None
     if vector_store is None:
         st.error("Vector store unavailable — check your DATABASE_URL.")
         return
 
+    progress = st.progress(0.0, text="Starting…")
+
     for i, file in enumerate(uploaded_files):
-        status_text.text(f"Saving {file.name} to documents folder…")
+        progress.progress(i / len(uploaded_files), text=f"Saving {file.name}…")
         try:
             saved_path = save_upload(file, folder=agent.documents_dir)
-
-            status_text.text(f"Embedding {file.name} into pgvector…")
+            progress.progress(i / len(uploaded_files), text=f"Embedding {file.name}…")
             chunks = ingest_file(vector_store, saved_path)
 
-            if chunks is None or chunks == 0:
-                status_msg = (
-                    f"ℹ️ {file.name} already up-to-date in pgvector "
-                    "(no new chunks written)."
-                )
+            if not chunks:
+                st.info(f"{file.name} already up-to-date (no new chunks).")
             else:
-                status_msg = (
-                    f"✅ {file.name} → {chunks} chunk(s) embedded into pgvector "
-                    f"(stored at `{saved_path}`)."
-                )
+                st.success(f"{file.name} → {chunks} chunk(s) embedded.")
 
             st.session_state.processed_docs.append({
                 "name": file.name,
@@ -458,19 +433,181 @@ def process_documents(uploaded_files):
                 "chunks_created": chunks or 0,
                 "content": f"Saved to {saved_path}",
             })
+        except Exception as e:
+            st.error(f"Error processing {file.name}: {e}")
+            print(f"❌ Error processing {file.name}: {e}")
 
-            progress_bar.progress((i + 1) / len(uploaded_files))
-            st.success(status_msg)
+    progress.progress(1.0, text="All uploads processed.")
+    progress.empty()
+
+
+# ---------------------------------------------------------------------------
+# Chat
+# ---------------------------------------------------------------------------
+def render_message(msg: dict):
+    """Render one stored chat message, including its reasoning trace if any."""
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+        meta = msg.get("meta")
+        if meta:
+            bits = []
+            if meta.get("model"):
+                bits.append(f"model `{meta['model']}`")
+            if meta.get("route"):
+                bits.append(f"route `{meta['route']}`")
+            if meta.get("complexity"):
+                bits.append(f"complexity `{meta['complexity']}`")
+            if meta.get("time"):
+                bits.append(meta["time"])
+            trace = meta.get("trace") or []
+            label = "🧠 Reasoning trace" + (f" · {len(trace)} steps" if trace else "")
+            with st.expander(label):
+                if bits:
+                    st.caption(" · ".join(bits))
+                if trace:
+                    for i, step in enumerate(trace, 1):
+                        st.markdown(f"{i}. {step}")
+                else:
+                    st.caption("No trace recorded for this turn.")
+
+
+def handle_prompt(prompt: str):
+    """Stream an answer for a freshly submitted prompt and store the result."""
+    user_msg = {"role": "user", "content": prompt}
+    st.session_state.messages.append(user_msg)
+    render_message(user_msg)
+
+    with st.chat_message("assistant"):
+        placeholder = st.empty()
+        streamed = {"text": ""}
+
+        def on_token(tok):
+            streamed["text"] += tok
+            placeholder.markdown(streamed["text"] + " ▌")
+
+        try:
+            # Prior turns (excluding the just-appended user message) let the
+            # conversational rewrite resolve follow-up phrasing. The spinner
+            # gives an animated "thinking" cue until the answer is ready, while
+            # tokens stream live into the placeholder underneath it.
+            history = st.session_state.messages[:-1]
+            with st.spinner("🧭 Analyzing your question…"):
+                response = st.session_state.agent.process_query(
+                    prompt, on_token=on_token, history=history)
+
+            answer = response.get("output", "No response generated")
+            placeholder.markdown(answer)
+
+            assistant_msg = {
+                "role": "assistant",
+                "content": answer,
+                "meta": {
+                    "trace": response.get("trace", []),
+                    "model": response.get("analyst_model"),
+                    "route": response.get("route"),
+                    "complexity": response.get("complexity"),
+                    "time": datetime.now().strftime("%H:%M:%S"),
+                },
+            }
+            st.session_state.messages.append(assistant_msg)
+
+            if response.get("data"):
+                create_data_visualization(response["data"])
 
         except Exception as e:
-            error_msg = f"❌ Error processing {file.name}: {str(e)}"
-            st.error(error_msg)
-            print(error_msg)
+            error = f"❌ I hit an error while processing your request: {e}"
+            placeholder.markdown(error)
+            st.session_state.messages.append({"role": "assistant", "content": error})
 
-    status_text.text("✅ All uploads processed.")
-    time.sleep(2)
-    status_text.empty()
-    progress_bar.empty()
+
+def render_suggestions(agent):
+    """Render dynamically generated follow-up questions as clickable buttons.
+
+    Suggestions are produced by the agent from the indexed document chunks plus
+    the user's recent questions, and cached against a (chunk_count, #questions)
+    signature so they refresh when documents are added or the conversation
+    advances — without an LLM call on every rerun. Clicking one submits it
+    through the same path as typing.
+    """
+    if agent is None:
+        return
+
+    try:
+        chunk_sig = agent.get_document_stats().get("total_chunks", 0)
+    except Exception:
+        chunk_sig = 0
+    n_user = sum(1 for m in st.session_state.messages if m["role"] == "user")
+    sig = (chunk_sig, n_user)
+
+    if st.session_state.get("suggestions_sig") != sig:
+        st.session_state.suggestions = agent.suggest_questions(
+            history=st.session_state.messages, n=4)
+        st.session_state.suggestions_sig = sig
+
+    suggestions = st.session_state.get("suggestions") or []
+    if not suggestions:
+        return
+
+    head = st.columns([6, 1])
+    head[0].caption("💡 Suggested questions")
+    if head[1].button("🔄", key="sugg_refresh", help="Regenerate suggestions"):
+        st.session_state.pop("suggestions_sig", None)
+        st.rerun()
+
+    for row_start in range(0, len(suggestions), 2):
+        cols = st.columns(2)
+        for offset, col in enumerate(cols):
+            idx = row_start + offset
+            if idx >= len(suggestions):
+                break
+            if col.button(suggestions[idx], key=f"sugg_{idx}", width="stretch"):
+                st.session_state.pending_prompt = suggestions[idx]
+                st.rerun()
+
+
+def create_chat_interface():
+    agent = st.session_state.agent
+    # A suggestion-button click queues its text here for processing this run.
+    pending = st.session_state.pop("pending_prompt", None)
+
+    if not st.session_state.messages and not pending:
+        st.info("👋 Ask me anything about financial analysis and prepayment "
+                "forecasting. Upload documents in the sidebar to ground answers "
+                "in your own data.")
+
+    for msg in st.session_state.messages:
+        render_message(msg)
+
+    # Show suggestions only when we're not about to process a queued click.
+    if not pending:
+        render_suggestions(agent)
+
+    typed = st.chat_input("Ask about prepayment, risk, or your documents…")
+    prompt = typed or pending
+    if prompt:
+        if agent is None:
+            st.error("Agent is offline — cannot process queries.")
+        else:
+            handle_prompt(prompt)
+            st.rerun()
+
+    inject_history_navigation()
+
+
+def create_data_visualization(data):
+    """Render visualisations for any structured data returned by the agent."""
+    if isinstance(data, dict) and data:
+        st.markdown("#### 📊 Analysis results")
+        if "chart_data" in data:
+            st.line_chart(pd.DataFrame(data["chart_data"]))
+        if "metrics" in data:
+            st.table(pd.DataFrame(data["metrics"]))
+        if "summary" in data:
+            st.write(data["summary"])
+    elif isinstance(data, list) and data:
+        st.markdown("#### 📊 Analysis results")
+        st.table(pd.DataFrame(data))
+
 
 def inject_history_navigation():
     """Terminal-style ↑/↓ recall of previously sent questions in the chat box.
@@ -478,9 +615,7 @@ def inject_history_navigation():
     Streamlit's chat_input has no built-in history, so this injects a small
     client-side script: pressing ArrowUp (when the cursor is at the start of
     the box) walks back through the questions you've already sent, ArrowDown
-    walks forward, and going past the newest one clears the box. The questions
-    themselves live in st.session_state.messages, so they persist for the
-    whole session.
+    walks forward, and going past the newest one clears the box.
     """
     history = [m["content"] for m in st.session_state.get("messages", [])
                if m["role"] == "user"]
@@ -494,7 +629,6 @@ def inject_history_navigation():
             const w = window.parent;
             const hist = {json.dumps(history)};
             w.__chatHist = hist;
-            // Reset the navigation cursor whenever the history grows/changes.
             if (w.__chatHistLen !== hist.length) {{
                 w.__chatHistIdx = hist.length;
                 w.__chatHistLen = hist.length;
@@ -548,133 +682,10 @@ def inject_history_navigation():
     )
 
 
-def create_chat_interface():
-    """Enhanced chat interface with input at top"""
-    st.markdown("### 💬 AI Financial Analyst")
-    
-    # Create a container for the input that stays at the top
-    input_container = st.container()
-    
-    with input_container:
-        st.markdown("#### ✍️ Ask Your Question")
-        # Chat input at the top - always visible
-        prompt = st.chat_input("Type your question here...", key="chat_input_top")
-    
-    # Separator
-    st.markdown("---")
-    
-    # Process input immediately if provided
-    if prompt:
-        # Add user message to chat history and show it right away
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
-
-        # Stream the assistant's answer live as it is generated
-        with st.chat_message("assistant"):
-            placeholder = st.empty()
-            placeholder.markdown("🧭 Routing & retrieving…")
-            streamed = {"text": ""}
-
-            def on_token(tok):
-                streamed["text"] += tok
-                placeholder.markdown(streamed["text"] + " ▌")
-
-            try:
-                # Pass prior turns (excluding the user message just appended)
-                # so the conversational rewrite can resolve follow-up phrasing.
-                history = st.session_state.messages[:-1]
-                response = st.session_state.agent.process_query(
-                    prompt, on_token=on_token, history=history)
-
-                # Build the multi-agent trace (so the pipeline is visible)
-                trace = response.get("trace", [])
-                trace_md = ""
-                if trace:
-                    steps = "\n".join(f"{i}. {step}" for i, step in enumerate(trace, 1))
-                    trace_md = f"\n\n**🧠 Multi-agent trace**\n\n{steps}"
-
-                # Format response with additional insights
-                answered_model = response.get("analyst_model")
-                model_note = f" · model: {answered_model}" if answered_model else ""
-                formatted_response = f"""**Analysis Complete** ✅
-
-{response.get("output", "No response generated")}
-{trace_md}
-
----
-*Answered by the multi-agent graph (planner → retriever → analyst){model_note} at {datetime.now().strftime("%H:%M:%S")}*"""
-
-                # Replace the streamed text with the final formatted version
-                placeholder.markdown(formatted_response)
-                st.session_state.messages.append({"role": "assistant", "content": formatted_response})
-
-                # Show additional visualizations if data is present
-                if "data" in response and response["data"]:
-                    create_data_visualization(response["data"])
-
-            except Exception as e:
-                error_response = f"❌ I encountered an error while processing your request: {str(e)}"
-                placeholder.markdown(error_response)
-                st.session_state.messages.append({"role": "assistant", "content": error_response})
-
-        # Rerun to refresh the conversation history and metrics
-        st.rerun()
-    
-    # Show conversation history below the input
-    if st.session_state.messages:
-        st.markdown("#### 🔄 Latest Conversation")
-        
-        # Show the last user message and AI response pair
-        messages_to_show = st.session_state.messages[-2:] if len(st.session_state.messages) >= 2 else st.session_state.messages[-1:]
-        
-        for message in messages_to_show:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
-        
-        st.markdown("---")
-        
-        # Show full conversation history in an expander
-        if len(st.session_state.messages) > 2:
-            with st.expander(f"📜 Full Conversation History ({len(st.session_state.messages)} messages)", expanded=False):
-                for message in st.session_state.messages[:-2]:
-                    with st.chat_message(message["role"]):
-                        st.markdown(message["content"])
-    else:
-        st.info("👋 Welcome! Ask me anything about financial analysis and prepayment forecasting.")
-
-    # Enable ↑/↓ recall of previously sent questions in the input box.
-    inject_history_navigation()
-
-
-def create_data_visualization(data):
-    """Create visualizations for analysis data using Streamlit built-in charts"""
-    if isinstance(data, dict) and data:
-        st.markdown("### 📊 Analysis Results")
-        
-        # Display the actual data provided by the AI model
-        if "chart_data" in data:
-            st.markdown("#### 📈 Analysis Chart")
-            chart_df = pd.DataFrame(data["chart_data"])
-            st.line_chart(chart_df)
-        
-        if "metrics" in data:
-            st.markdown("#### 📋 Key Metrics")
-            metrics_df = pd.DataFrame(data["metrics"])
-            st.table(metrics_df)
-        
-        if "summary" in data:
-            st.markdown("#### 📄 Summary")
-            st.write(data["summary"])
-    
-    elif isinstance(data, list) and data:
-        st.markdown("### 📊 Analysis Results")
-        st.markdown("#### 📋 Analysis Data")
-        df = pd.DataFrame(data)
-        st.table(df)
-
+# ---------------------------------------------------------------------------
+# App
+# ---------------------------------------------------------------------------
 def initialize_session_state():
-    """Initialize session state variables"""
     if "messages" not in st.session_state:
         st.session_state.messages = []
     if "agent" not in st.session_state:
@@ -689,45 +700,31 @@ def initialize_session_state():
                     f"{len(result.errors)} error(s)."
                 )
         except Exception as e:
-            st.error(f"Failed to initialize agent: {str(e)}")
+            st.error(f"Failed to initialize agent: {e}")
             st.session_state.agent = None
     if "processed_docs" not in st.session_state:
         st.session_state.processed_docs = []
 
+
 def main():
-    """Main application function"""
     load_custom_css()
     initialize_session_state()
-    
-    # Create header
+
     create_header()
 
-    # Reserve the top spot for the live metrics, but fill it AFTER the chat and
-    # sidebar have run this pass — otherwise the counts reflect last run's state
-    # (e.g. a just-processed document or new message wouldn't show until the
-    # next interaction).
+    # Reserve the metrics slot, but fill it after the sidebar + chat have run so
+    # the counts reflect this run's state (a just-processed doc / new message).
     metrics_placeholder = st.empty()
 
-    # Create main layout
-    col1, col2 = st.columns([2, 1])
+    create_sidebar()
+    create_chat_interface()
 
-    with col1:
-        create_chat_interface()
-
-    with col2:
-        create_sidebar()
-
-    # Render the metrics now that session state is up to date for this run.
     with metrics_placeholder.container():
-        create_metrics_dashboard()
-    
-    # Footer
-    st.markdown("---")
-    st.markdown("""
-    <div style="text-align: center; color: #6b7280; padding: 1rem;">
-        <small>🏦 Financial Forecast AI | Powered by Ollama (local LLM) | Built with Streamlit</small>
-    </div>
-    """, unsafe_allow_html=True)
+        render_metrics()
+
+    st.divider()
+    st.caption("🏦 Financial Agentic Platform · powered by Ollama (local LLM) · built with Streamlit")
+
 
 if __name__ == "__main__":
     main()

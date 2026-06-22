@@ -146,7 +146,14 @@ def save_upload(uploaded_file, folder: Optional[str] = None) -> str:
     """
     folder = os.path.abspath(folder or documents_dir())
     os.makedirs(folder, exist_ok=True)
-    target = os.path.join(folder, uploaded_file.name)
+    # Strip any path components from the uploaded name so a crafted filename
+    # like "../../etc/passwd" can't escape the docs folder.
+    safe_name = os.path.basename(uploaded_file.name.replace("\\", "/"))
+    if not safe_name or safe_name in (".", ".."):
+        raise ValueError(f"Refusing to save upload with unsafe name: {uploaded_file.name!r}")
+    target = os.path.abspath(os.path.join(folder, safe_name))
+    if os.path.commonpath([folder, target]) != folder:
+        raise ValueError(f"Refusing to save upload outside docs folder: {uploaded_file.name!r}")
     with open(target, "wb") as f:
         f.write(uploaded_file.getvalue())
     return target

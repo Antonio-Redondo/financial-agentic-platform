@@ -99,6 +99,24 @@ class FinancialAgent:
                 "trace": [],
             }
 
+    def suggest_questions(self, history: Optional[List[Dict]] = None,
+                          n: int = 4) -> List[str]:
+        """Propose follow-up questions grounded in the indexed documents and the
+        user's recent questions.
+
+        Args:
+            history: prior chat turns ``[{role, content}, ...]``; only the
+                user turns are used as recent-question context.
+            n: how many suggestions to return.
+        """
+        queries = [m.get("content", "") for m in (history or [])
+                   if m.get("role") == "user"]
+        try:
+            return self.graph.suggest_questions(queries, n=n)
+        except Exception as e:  # noqa: BLE001 — suggestions are best-effort
+            print(f"⚠️ suggest_questions failed: {e}", flush=True)
+            return []
+
     def get_document_stats(self) -> Dict:
         """Get statistics about indexed documents."""
         return {

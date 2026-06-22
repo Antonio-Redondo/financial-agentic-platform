@@ -19,7 +19,9 @@ Agents
   • Analyst   — writes the answer, grounded in retrieved context when present.
                 The model router picks which model writes it (fast vs strong).
 """
+import json
 import os
+import re
 from typing import Dict, List, Optional, TypedDict
 
 from langchain_core.messages import HumanMessage
@@ -29,6 +31,7 @@ from .llm import build_llm
 from .vector_store import VectorStore
 from . import retrieval
 from . import router
+from ..observability import traceable, add_metadata
 
 
 def _emit(msg: str) -> str:
@@ -168,6 +171,114 @@ class FinancialGraph:
             self.planner_llm.invoke([HumanMessage(content="ok")])
         except Exception as e:
             print(f"⚠️ Model warmup skipped: {e}", flush=True)
+
+    # ------------------------------------------------------- suggestions
+    @staticmethod
+    def _parse_question_list(raw: str, n: int) -> List[str]:
+        """Best-effort parse of an LLM reply into a list of question strings.
+
+        Tries a JSON array first (the requested format), then falls back to
+        splitting on lines and stripping bullets / numbering / quotes so a
+        chatty model that ignores the format still yields usable suggestions.
+        """
+        raw = (raw or "").strip()
+        # Preferred path: a JSON array somewhere in the reply.
+        if "[" in raw and "]" in raw:
+            snippet = raw[raw.find("["): raw.rfind("]") + 1]
+            try:
+                items = json.loads(snippet)
+                if isinstance(items, list):
+                    out = [str(x).strip() for x in items if str(x).strip()]
+                    if out:
+                        return out[:n]
+            except (ValueError, TypeError):
+                pass
+        # Salvage path: small models often emit a truncated array (missing the
+        # closing bracket) — pull the quoted strings directly so the suggestions
+        # survive malformed JSON.
+        quoted = [q.strip() for q in re.findall(r'"([^"\n]{8,200})"', raw)]
+        quoted = [q for q in quoted if q and not q.startswith(("$", "#", "http"))]
+        if quoted:
+            return quoted[:n]
+        # Fallback: line-by-line, drop leading bullets/numbers and quotes.
+        out: List[str] = []
+        for line in raw.splitlines():
+            line = line.strip().lstrip("-*•0123456789.)( \t").strip().strip('"').strip()
+            if len(line) >= 8 and line.endswith("?"):
+                out.append(line)
+        return out[:n]
+
+    @traceable(run_type="chain", name="suggest_questions")
+    def suggest_questions(self, queries: Optional[List[str]] = None,
+                          n: int = 4) -> List[str]:
+        """Propose follow-up questions grounded in indexed docs + chat history.
+
+        Samples a few document previews from the vector store and the user's
+        recent questions, then asks the fast model for ``n`` concise, specific
+        questions to ask next. Returns ``[]`` if there is nothing to ground on
+        or the model is unavailable — callers fall back to static prompts.
+        """
+        queries = [q for q in (queries or []) if q and q.strip()][-6:]
+
+        # Ground suggestions in actual chunk content pulled from the vector DB
+        # (relevant to the latest question, or a sample across docs at cold
+        # start) rather than thin per-document previews.
+        context = self._suggestion_context(queries)
+        if not context and not queries:
+            return []
+
+        history_block = ("\n".join(f"- {q}" for q in queries)
+                         if queries else "(none yet)")
+        context_block = context or "(no documents indexed yet)"
+
+        prompt = (
+            "You are a financial analyst assistant. Using the document excerpts "
+            f"below, write {n} short, specific follow-up questions the user could "
+            "usefully ask next.\n\n"
+            "Output rules:\n"
+            f"- Return ONLY a JSON array of {n} strings. No prose, no schema, no keys.\n"
+            '- Example: ["What was the Q2 CPR?", "How did rates affect prepayments?"]\n'
+            "- Each question must be grounded in the excerpts and under 100 characters.\n"
+            "- Do not repeat the user's previous questions.\n"
+            "- If no documents are indexed, suggest general prepayment / risk "
+            "analysis questions.\n\n"
+            f"Document excerpts:\n{context_block}\n\n"
+            f"Recent user questions:\n{history_block}\n\n"
+            "JSON array:"
+        )
+
+        # Use the strong model: small models reliably ignore the array format
+        # and emit a JSON schema or truncated array instead of real questions.
+        model = router.strong_model() if self.use_router else self.model
+        try:
+            llm = build_llm(num_predict=220, temperature=0.4, model=model)
+            raw = self._ask(llm, prompt)
+        except Exception as e:
+            print(f"⚠️ Suggestion generation failed: {e}", flush=True)
+            return []
+        return self._parse_question_list(raw, n)
+
+    def _suggestion_context(self, queries: List[str], k: int = 6) -> str:
+        """Build a grounding block from real vector-store chunks.
+
+        Retrieves chunks relevant to the user's latest question when there is
+        one, otherwise samples a spread of chunks across the indexed documents
+        so cold-start suggestions still reflect the corpus. Returns '' when
+        nothing is indexed or retrieval fails.
+        """
+        try:
+            if queries:
+                hits = self.vector_store.search_documents(queries[-1], k=k)
+            else:
+                hits = self.vector_store.sample_chunks(k=k)
+            lines = [
+                f"- ({h['metadata'].get('filename', 'doc')}) {h['content'][:260].strip()}"
+                for h in hits if h.get("content")
+            ]
+            return "\n".join(lines)[:2200]
+        except Exception as e:
+            print(f"⚠️ Suggestion context unavailable: {e}", flush=True)
+            return ""
 
     # ------------------------------------------------------------------- agents
     def planner_node(self, state: AgentState) -> AgentState:
@@ -365,6 +476,7 @@ class FinancialGraph:
             "log": [],
         })
 
+    @traceable(run_type="chain", name="financial_query")
     def stream_run(self, query: str, on_token,
                    history: Optional[List[Dict]] = None,
                    filters: Optional[Dict] = None) -> AgentState:
@@ -389,6 +501,10 @@ class FinancialGraph:
             state.update(self.retrieve_node(state))
 
         model = self._route_analyst_model(state)
+        # Tag the trace so runs are filterable by route / complexity / model.
+        add_metadata(route=state.get("route"),
+                     complexity=state.get("complexity"),
+                     analyst_model=model)
         pieces = []
         for chunk in self._analyst_for(model).stream(
                 [HumanMessage(content=self._analyst_prompt(state))]):

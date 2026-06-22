@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chunking Strategy — Financial Agentic Platform</title>
+<link rel="stylesheet" href="strategy.css">
+</head>
+<body>
+
+<div class="crumbs">
+  <a href="../architecture.html">🏦 Architecture</a><span class="sep">›</span>
+  <a href="index.html">Strategies</a><span class="sep">›</span>
+  <span>Chunking</span>
+</div>
+
+<header class="hero">
+  <p class="eyebrow">Strategy · Ingestion</p>
+  <h1>✂️ Chunking Strategy</h1>
+  <p class="sub">
+    Documents are split into small, overlapping windows before embedding. The split size is
+    deliberately tuned to the embedding model's context limit — not to a generic default.
+  </p>
+  <div class="badges">
+    <span class="badge">src/agents/vector_store.py</span>
+    <span class="badge">RecursiveCharacterTextSplitter</span>
+    <span class="badge">500 chars · 100 overlap</span>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <section>
+    <h2><span class="dot"></span>What it does</h2>
+    <p class="lede">
+      Every ingested file's text is divided into chunks of <b>500 characters</b> with a
+      <b>100-character overlap</b>, using LangChain's <code>RecursiveCharacterTextSplitter</code>.
+      Each chunk becomes one embedded row in <code>document_chunks</code>, the unit that retrieval
+      later searches over.
+    </p>
+    <pre><code><span class="tok-c"># src/agents/vector_store.py — VectorStore.__init__</span>
+<span class="tok-c"># 500/100 keeps pathological char-heavy chunks (e.g. PDF ToC dot leaders)</span>
+<span class="tok-c"># under mxbai-embed-large's 512-token context window.</span>
+self.text_splitter = <span class="tok-f">RecursiveCharacterTextSplitter</span>(
+    chunk_size=<span class="tok-s">500</span>,
+    chunk_overlap=<span class="tok-s">100</span>,
+)</code></pre>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>Why these numbers</h2>
+    <div class="panel why">
+      <h4>🎯 The binding constraint: the embedder's 512-token window</h4>
+      <p>
+        The embedding model is <code>mxbai-embed-large</code>, which encodes at most
+        <b>512 tokens</b>. Any chunk longer than that is silently truncated — the tail of the
+        text never makes it into the vector. Financial PDFs are full of <i>char-heavy</i> content
+        (table-of-contents dot leaders, number grids, tabular figures) where 1,000 characters can
+        blow past 512 tokens. Capping at <b>500 characters</b> guarantees every chunk fits, so no
+        content is dropped at embed time.
+      </p>
+    </div>
+    <ul class="clean">
+      <li><b>Smaller chunks = sharper retrieval.</b> A 500-char window is usually one fact, figure or
+        clause, so a cosine match is precise rather than diluted across several unrelated sentences.</li>
+      <li><b>100-char overlap preserves context across the seam.</b> A sentence split between two
+        chunks still appears whole in at least one of them, so boundary facts aren't lost.</li>
+      <li><b>"Recursive" splitting respects structure.</b> The splitter tries paragraph breaks first,
+        then lines, then sentences, then characters — keeping semantically related text together
+        where it can rather than cutting mid-word.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>The trade-off</h2>
+    <table>
+      <thead><tr><th>Choice</th><th>Pro</th><th>Con</th></tr></thead>
+      <tbody>
+        <tr><td><b>Small (500)</b><br><small class="note">current</small></td>
+          <td>Fits the embedder; precise matches; cheaper per-chunk embed</td>
+          <td>More chunks/doc; a fact spanning &gt;500 chars may need 2 hits</td></tr>
+        <tr><td><b>Large (1000+)</b></td>
+          <td>Fewer rows; more surrounding context per chunk</td>
+          <td><b>Truncated</b> past 512 tokens — silent content loss; fuzzier matches</td></tr>
+      </tbody>
+    </table>
+    <p class="note">
+      Retrieval compensates for smaller chunks by returning several of them: the analyst sees the
+      top <code>RETRIEVAL_K=6</code> chunks together, so multi-chunk facts are reassembled in context.
+    </p>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>Where it sits in the pipeline</h2>
+    <div class="flow">
+      <div class="step"><div class="ico">🧾</div><h5>Extract</h5><p>raw text per file</p></div>
+      <div class="arrow">→</div>
+      <div class="step" style="border-color:var(--green)"><div class="ico">✂️</div><h5>Chunk</h5><p>500 / 100 recursive</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">🔢</div><h5>Embed</h5><p>≤512 tokens each</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">💾</div><h5>Upsert</h5><p>one row per chunk</p></div>
+    </div>
+    <div class="panel tip">
+      <h4>♻️ Re-chunking is automatic on change</h4>
+      <p>
+        <code>upsert_document()</code> compares a SHA-256 <code>content_hash</code>. If a file is
+        unchanged the embeddings are kept as-is; if it changed, its old chunks are deleted and the
+        document is re-chunked and re-embedded from scratch — so tuning these numbers only takes
+        effect for re-ingested content.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>If you change the embedding model</h2>
+    <p>
+      The 500/100 figure is coupled to <code>mxbai-embed-large</code>. Swap the embedder and you
+      should revisit it: a model with a larger window can take bigger chunks, and a different
+      vector dimension requires updating <code>EMBEDDING_DIM</code> and rebuilding the
+      <code>document_chunks</code> table.
+    </p>
+    <div class="kv">
+      <div>EMBEDDING_MODEL</div><div>mxbai-embed-large — the 512-token limit that sets chunk_size</div>
+      <div>EMBEDDING_DIM</div><div>1024 — must match the model; index is built for this width</div>
+      <div>chunk_size / overlap</div><div>500 / 100 — edit in <code>VectorStore.__init__</code>, then re-ingest</div>
+    </div>
+  </section>
+
+  <div class="pagenav">
+    <a class="prev" href="index.html"><span class="dir">← Back</span><span class="ttl">All strategies</span></a>
+    <a class="next" href="retrieval-strategy.html"><span class="dir">Next →</span><span class="ttl">Retrieval Strategy</span></a>
+  </div>
+
+  <footer>🏦 Financial Agentic Platform · Chunking deep dive</footer>
+</div>
+</body>
+</html>

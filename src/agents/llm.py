@@ -4,7 +4,7 @@ Every agent node in the LangGraph workflow builds its own ChatOllama client via
 this helper so the Ollama model/endpoint is configured in exactly one place.
 """
 import os
-from langchain_community.chat_models import ChatOllama
+from langchain_ollama import ChatOllama
 
 
 def build_llm(num_predict: int = 1024, temperature: float = 0.7,

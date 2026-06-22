@@ -138,6 +138,16 @@
   td b{color:var(--ink)}
   code{background:var(--panel-2);border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-size:.85em}
 
+  /* Quick reference */
+  .qr h4{margin:26px 0 6px;color:var(--ink);font-size:1.05rem;display:flex;align-items:center;gap:8px}
+  .qr table{margin-top:0}
+  .qr td:first-child{white-space:nowrap;width:1%}
+  .qr-legend{display:flex;gap:16px;flex-wrap:wrap;margin:0 0 4px;font-size:.82rem;color:var(--muted);align-items:center}
+  .st{font-size:.7rem;font-weight:700;padding:2px 9px;border-radius:999px;white-space:nowrap;letter-spacing:.02em}
+  .st.use{background:rgba(16,185,129,.16);color:#34d399;border:1px solid rgba(16,185,129,.4)}
+  .st.opt{background:rgba(245,158,11,.16);color:#fbbf24;border:1px solid rgba(245,158,11,.4)}
+  .st.no{background:var(--panel-2);color:var(--muted);border:1px solid var(--line)}
+
   /* Infra diagram */
   .infra{display:grid;grid-template-columns:1fr 1fr;gap:18px}
   .node{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px;box-shadow:var(--shadow)}
@@ -172,6 +182,11 @@
     <span class="badge">pgvector hybrid RAG</span>
     <span class="badge">100% local</span>
   </div>
+  <p style="margin:18px 0 0;font-size:.95rem">
+    <a href="strategies/index.html" style="color:#fff;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.3);padding:8px 16px;border-radius:999px;font-weight:600">
+      🧠 Read the deep-dive strategies → chunking · retrieval · re-ranking · prompts · routing
+    </a>
+  </p>
 </header>
 
 <div class="wrap">
@@ -256,10 +271,12 @@
         </div>
       </div>
       <div class="loopnote" style="color:var(--cyan)">
-        🔀 <b>Model router:</b> the Planner's SIMPLE/COMPLEX label selects the Analyst's model —
-        <code>simple → llama3.2:1b</code> (fast), <code>complex → qwen2.5:3b</code> (strong). The Planner can
-        also skip the Retriever and go straight to the Analyst for general-knowledge questions. Streaming runs
-        on the caller's thread so tokens reach the Streamlit UI live.
+        🔀 <b>Model router:</b> the Planner's SIMPLE/COMPLEX label selects the Analyst's model from the
+        <b>eval-derived policy</b>. The current measured policy is counterintuitive —
+        <code>simple → qwen2.5:3b</code> (strong), <code>complex → llama3.2:1b</code> (fast) — because the
+        harness found the strong model only earns its keep on short definitional answers. The Planner can also
+        skip the Retriever and go straight to the Analyst for general-knowledge questions. Streaming runs on the
+        caller's thread so tokens reach the Streamlit UI live.
       </div>
     </div>
 
@@ -312,7 +329,8 @@
     <p class="lede">
       Different local models trade quality for speed. Rather than guess, the platform <b>measures</b> each
       model with an offline eval harness, derives a routing <b>policy</b>, and the router applies it per query.
-      The harness needs only Ollama (no Postgres).
+      The harness needs only Ollama (no Postgres). See the
+      <a href="strategies/evals.html"><b>evals deep dive</b></a> for the dataset, metrics and latest results.
     </p>
 
     <div class="flowrow">
@@ -370,12 +388,13 @@
         <tr><th>Complexity</th><th>Example query</th><th>Routed model</th><th>Why</th></tr>
       </thead>
       <tbody>
-        <tr><td><b>simple</b></td><td>“What is CPR in mortgage finance?”</td><td><code>llama3.2:1b</code> (fast)</td><td>Definitions don't need the strong model</td></tr>
-        <tr><td><b>complex</b></td><td>“Stress-test this portfolio for rate risk.”</td><td><code>qwen2.5:3b</code> (strong)</td><td>Multi-step reasoning rewards quality</td></tr>
+        <tr><td><b>simple</b></td><td>“What is CPR in mortgage finance?”</td><td><code>qwen2.5:3b</code> (strong)</td><td>Measured: strong model's judge gain on short answers cleared <code>QUALITY_TOLERANCE</code></td></tr>
+        <tr><td><b>complex</b></td><td>“Stress-test this portfolio for rate risk.”</td><td><code>llama3.2:1b</code> (fast)</td><td>Measured: strong model's gain ≤ tolerance, so the cheaper model wins</td></tr>
       </tbody>
     </table>
-    <p class="note">Defaults shown; the live mapping comes from <code>evals/results/policy.json</code> (env
-      <code>ROUTER_FAST_MODEL</code> / <code>ROUTER_STRONG_MODEL</code> as fallback).</p>
+    <p class="note">Live mapping shown — from the current <code>evals/results/policy.json</code> (counterintuitive
+      and measured, not assumed; env <code>ROUTER_FAST_MODEL</code> / <code>ROUTER_STRONG_MODEL</code> are the
+      fallback when no policy file exists). Re-run <code>python -m evals.run_evals</code> to refresh it.</p>
   </section>
 
   <!-- Data flow -->
@@ -390,7 +409,7 @@
       <div class="arrow">→</div>
       <div class="step"><div class="ico">🧾</div><h4>Extract</h4><p>pypdf, python-docx, openpyxl, BeautifulSoup…</p></div>
       <div class="arrow">→</div>
-      <div class="step"><div class="ico">✂️</div><h4>Chunk</h4><p>1000 chars / 200 overlap</p></div>
+      <div class="step"><div class="ico">✂️</div><h4>Chunk</h4><p>500 chars / 100 overlap</p></div>
       <div class="arrow">→</div>
       <div class="step"><div class="ico">🔢</div><h4>Embed</h4><p>mxbai-embed-large (1024-dim)</p></div>
       <div class="arrow">→</div>
@@ -510,7 +529,7 @@
       </div>
       <div class="card">
         <div class="accent" style="background:var(--amber)"></div>
-        <h3>⚖️ Eval harness</h3>
+        <h3>⚖️ <a href="strategies/evals.html">Eval harness</a></h3>
         <p class="note">evals/</p>
         <ul>
           <li>Dataset + coverage + LLM-judge + latency</li>
@@ -518,12 +537,114 @@
           <li>Ollama-only (no Postgres needed)</li>
         </ul>
       </div>
+      <div class="card">
+        <div class="accent" style="background:var(--violet)"></div>
+        <h3>🔭 <a href="strategies/observability.html">Observability</a></h3>
+        <p class="note">src/observability.py</p>
+        <ul>
+          <li>LangSmith tracing for every LLM / agent call</li>
+          <li><code>@traceable</code> groups runs; <code>add_metadata</code> tags route/model</li>
+          <li>Opt-in via <code>LANGSMITH_*</code> — off (and offline) by default</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- Deep-dive strategies -->
+  <section>
+    <h2><span class="num">06</span>Deep-Dive Strategies</h2>
+    <p class="lede">
+      The RAG and agent design decisions — each on its own page, crisp and tied back to the exact
+      source file that implements it. Start at the
+      <a href="strategies/index.html"><b>strategies hub</b></a> or jump straight in:
+    </p>
+    <div class="grid">
+      <div class="card">
+        <div class="accent" style="background:var(--green)"></div>
+        <h3>✂️ <a href="strategies/chunking-strategy.html">Chunking Strategy</a></h3>
+        <p class="note">vector_store.py</p>
+        <ul>
+          <li>Why <b>500 / 100</b> recursive splitting</li>
+          <li>Tuned to the embedder's 512-token window</li>
+          <li>Re-chunk-on-change via content hash</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="accent" style="background:var(--cyan)"></div>
+        <h3>🔎 <a href="strategies/retrieval-strategy.html">Retrieval Strategy</a></h3>
+        <p class="note">vector_store.py · retrieval.py</p>
+        <ul>
+          <li>Hybrid dense + sparse, fused with RRF</li>
+          <li>vector / keyword / hybrid modes</li>
+          <li>Rewrite · multi-query · HyDE (opt-in)</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="accent" style="background:var(--violet)"></div>
+        <h3>🎯 <a href="strategies/reranking-strategy.html">Re-ranking Strategy</a></h3>
+        <p class="note">retrieval.py</p>
+        <ul>
+          <li>LLM-as-cross-encoder precision pass</li>
+          <li>Over-fetch 20 → score 0–10 → keep top-k</li>
+          <li>Fail-safe: bad JSON keeps original order</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="accent" style="background:var(--blue)"></div>
+        <h3>📝 <a href="strategies/prompt-optimization.html">Prompt Optimization</a></h3>
+        <p class="note">graph.py · retrieval.py</p>
+        <ul>
+          <li>Constrained outputs for tiny models</li>
+          <li>Anti-hallucination grounded analyst prompt</li>
+          <li>Tolerant parsers + keyword safety nets</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="accent" style="background:var(--orange)"></div>
+        <h3>🔀 <a href="strategies/model-routing-strategy.html">Model Routing Strategy</a></h3>
+        <p class="note">router.py · evals/</p>
+        <ul>
+          <li>Complexity → fast vs strong model</li>
+          <li>Eval-derived <code>policy.json</code></li>
+          <li>Zero extra latency — label is already known</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="accent" style="background:var(--amber)"></div>
+        <h3>⚖️ <a href="strategies/evals.html">Evals &amp; Results</a></h3>
+        <p class="note">evals/run_evals.py</p>
+        <ul>
+          <li>20-query benchmark · coverage + LLM-judge + latency</li>
+          <li>Derives the router policy from real numbers</li>
+          <li>Latest results &amp; the counterintuitive route</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="accent" style="background:var(--violet)"></div>
+        <h3>🔭 <a href="strategies/observability.html">Observability</a></h3>
+        <p class="note">src/observability.py</p>
+        <ul>
+          <li>LangSmith tracing for every LLM / agent call</li>
+          <li>Grouped runs, tagged route / complexity / model</li>
+          <li>Opt-in setup · the one cloud dependency</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="accent" style="background:var(--pink)"></div>
+        <h3>🧠 <a href="strategies/index.html">All strategies →</a></h3>
+        <p class="note">docs/strategies/</p>
+        <ul>
+          <li>Single hub linking every deep dive</li>
+          <li>End-to-end pipeline diagram</li>
+          <li>Defaults vs. opt-in enhancements</li>
+        </ul>
+      </div>
     </div>
   </section>
 
   <!-- Tech stack -->
   <section>
-    <h2><span class="num">06</span>Technology Stack</h2>
+    <h2><span class="num">07</span>Technology Stack</h2>
     <div class="stack">
       <div class="card">
         <h3>🎨 Frontend</h3>
@@ -532,7 +653,7 @@
       </div>
       <div class="card">
         <h3>🤖 Agents / LLM</h3>
-        <span class="pill">LangGraph 0.0.26</span><span class="pill">LangChain 0.1.x</span>
+        <span class="pill">LangGraph 1.2.x</span><span class="pill">LangChain 1.x</span>
         <span class="pill">Ollama</span><span class="pill">llama3.2:1b</span><span class="pill">qwen2.5:3b</span>
         <span class="pill">Model router</span>
       </div>
@@ -557,12 +678,17 @@
         <span class="pill">Python 3.11+</span><span class="pill">python-dotenv</span>
         <span class="pill">Local .venv</span><span class="pill">100% offline</span>
       </div>
+      <div class="card">
+        <h3>🔭 Observability</h3>
+        <span class="pill">LangSmith tracing</span><span class="pill">@traceable runs</span>
+        <span class="pill">run metadata tags</span><span class="pill">opt-in (off by default)</span>
+      </div>
     </div>
   </section>
 
   <!-- Runtime topology -->
   <section>
-    <h2><span class="num">07</span>Runtime Topology</h2>
+    <h2><span class="num">08</span>Runtime Topology</h2>
     <p class="lede">Everything runs locally as three cooperating processes, wired together by <code>.env</code>.</p>
     <div class="infra">
       <div class="node">
@@ -589,7 +715,7 @@
 
   <!-- Use cases -->
   <section>
-    <h2><span class="num">08</span>Key Use Cases</h2>
+    <h2><span class="num">09</span>Key Use Cases</h2>
     <table>
       <thead>
         <tr><th>Use case</th><th>Input</th><th>Analysis</th><th>Output</th></tr>
@@ -602,6 +728,95 @@
         <tr><td><b>Compliance check</b></td><td>Regulatory docs</td><td>Rule interpretation</td><td>Compliance status &amp; gaps</td></tr>
       </tbody>
     </table>
+  </section>
+
+  <!-- Quick reference -->
+  <section class="qr">
+    <h2><span class="num">10</span>Quick Reference — Strategy Cheat-Sheet</h2>
+    <p class="lede">
+      The landscape of RAG &amp; agent techniques at a glance, with what this platform actually does called out.
+      Use the legend to tell a default-on choice from an opt-in toggle from a technique not (yet) wired in.
+    </p>
+    <div class="qr-legend">
+      <span><span class="st use">✓ USED</span> active by default</span>
+      <span><span class="st opt">○ OPT-IN</span> implemented, env-toggled</span>
+      <span><span class="st no">– N/A</span> common technique, not wired in</span>
+    </div>
+
+    <!-- Chunking -->
+    <h4>✂️ Chunking strategies</h4>
+    <table>
+      <thead><tr><th>Strategy</th><th>What it is</th><th>Here</th></tr></thead>
+      <tbody>
+        <tr><td><b>Recursive character</b></td><td>Split on a priority of separators (paragraph → line → word) to keep semantic units whole</td><td><span class="st use">✓ USED</span> <code>500</code> chars</td></tr>
+        <tr><td><b>Overlap / sliding window</b></td><td>Repeat trailing context between chunks so facts on a boundary aren't lost</td><td><span class="st use">✓ USED</span> <code>100</code> overlap</td></tr>
+        <tr><td><b>Fixed-size</b></td><td>Naive equal-length char/token slices, boundary-blind</td><td><span class="st no">– N/A</span></td></tr>
+        <tr><td><b>Sentence / token-aware</b></td><td>Break on sentence or model-token boundaries</td><td><span class="st no">– N/A</span></td></tr>
+        <tr><td><b>Semantic</b></td><td>Cut where embedding similarity between sentences drops</td><td><span class="st no">– N/A</span></td></tr>
+        <tr><td><b>Layout / structure-aware</b></td><td>Respect headings, tables, lists from the source document</td><td><span class="st no">– N/A</span></td></tr>
+        <tr><td><b>Hierarchical (small-to-big)</b></td><td>Embed small chunks, return their larger parent for context</td><td><span class="st no">– N/A</span></td></tr>
+      </tbody>
+    </table>
+
+    <!-- Retrieval -->
+    <h4>🔎 Retrieval strategies</h4>
+    <table>
+      <thead><tr><th>Strategy</th><th>What it is</th><th>Here</th></tr></thead>
+      <tbody>
+        <tr><td><b>Dense / vector</b></td><td>Embed query, cosine-nearest chunks in pgvector</td><td><span class="st use">✓ USED</span> mxbai-embed-large</td></tr>
+        <tr><td><b>Sparse / keyword (BM25)</b></td><td>Postgres full-text <code>ts_rank_cd</code> lexical match</td><td><span class="st use">✓ USED</span></td></tr>
+        <tr><td><b>Hybrid</b></td><td>Run dense + sparse, fuse the two ranked lists</td><td><span class="st use">✓ USED</span> default mode</td></tr>
+        <tr><td><b>RRF fusion</b></td><td>Reciprocal Rank Fusion — rank-based, score-scale-free merge</td><td><span class="st use">✓ USED</span> <code>k=60</code></td></tr>
+        <tr><td><b>Conversational rewrite</b></td><td>Resolve follow-ups (“what about Q2?”) into standalone queries</td><td><span class="st use">✓ USED</span> <code>RETRIEVAL_REWRITE</code></td></tr>
+        <tr><td><b>Metadata filtering</b></td><td>Constrain search by document/source filters</td><td><span class="st use">✓ USED</span> via <code>filters</code></td></tr>
+        <tr><td><b>Multi-query expansion</b></td><td>Generate N paraphrases, retrieve each, union results</td><td><span class="st opt">○ OPT-IN</span> <code>RETRIEVAL_MULTI_QUERY</code></td></tr>
+        <tr><td><b>HyDE</b></td><td>Embed a hypothetical answer instead of the raw question</td><td><span class="st opt">○ OPT-IN</span> <code>RETRIEVAL_HYDE</code></td></tr>
+        <tr><td><b>MMR</b></td><td>Maximal Marginal Relevance — trade relevance for diversity</td><td><span class="st no">– N/A</span></td></tr>
+        <tr><td><b>Parent-document</b></td><td>Match on child chunks, return parent passages</td><td><span class="st no">– N/A</span></td></tr>
+      </tbody>
+    </table>
+
+    <!-- Re-ranking -->
+    <h4>🎯 Re-ranking strategies</h4>
+    <table>
+      <thead><tr><th>Strategy</th><th>What it is</th><th>Here</th></tr></thead>
+      <tbody>
+        <tr><td><b>LLM-as-cross-encoder</b></td><td>Over-fetch <code>20</code>, have the LLM score 0–10, keep top-k; bad JSON falls back to original order</td><td><span class="st opt">○ OPT-IN</span> <code>RETRIEVAL_RERANK</code></td></tr>
+        <tr><td><b>RRF (rank fusion)</b></td><td>Implicit re-ordering when merging hybrid legs</td><td><span class="st use">✓ USED</span></td></tr>
+        <tr><td><b>Cross-encoder model</b></td><td>Dedicated reranker (e.g. bge-reranker) scores query–chunk pairs</td><td><span class="st no">– N/A</span></td></tr>
+        <tr><td><b>MMR diversity</b></td><td>Penalize near-duplicates among top results</td><td><span class="st no">– N/A</span></td></tr>
+      </tbody>
+    </table>
+
+    <!-- Memory -->
+    <h4>🧠 Memory strategies</h4>
+    <table>
+      <thead><tr><th>Type</th><th>What it is</th><th>Here</th></tr></thead>
+      <tbody>
+        <tr><td><b>Short-term / working</b></td><td>Current chat turns held in Streamlit <code>session_state</code>, passed into the graph and used by the conversational rewrite</td><td><span class="st use">✓ USED</span></td></tr>
+        <tr><td><b>Semantic (knowledge)</b></td><td>Durable facts in a vector store — here the ingested document corpus in pgvector</td><td><span class="st use">✓ USED</span> doc corpus</td></tr>
+        <tr><td><b>Long-term conversational</b></td><td>Persist past chats across sessions and retrieve them later</td><td><span class="st no">– N/A</span></td></tr>
+        <tr><td><b>Checkpointer / thread state</b></td><td>LangGraph persistence to resume a thread; each call here is stateless</td><td><span class="st no">– N/A</span></td></tr>
+        <tr><td><b>Episodic</b></td><td>Recall specific past interactions/events as exemplars</td><td><span class="st no">– N/A</span></td></tr>
+        <tr><td><b>Procedural</b></td><td>Learned skills/tool-use routines updated over time</td><td><span class="st no">– N/A</span></td></tr>
+      </tbody>
+    </table>
+
+    <!-- Routing -->
+    <h4>🔀 Routing &amp; model strategies</h4>
+    <table>
+      <thead><tr><th>Strategy</th><th>What it is</th><th>Here</th></tr></thead>
+      <tbody>
+        <tr><td><b>Complexity routing</b></td><td>Planner labels SIMPLE/COMPLEX → router picks the analyst model</td><td><span class="st use">✓ USED</span></td></tr>
+        <tr><td><b>Eval-derived policy</b></td><td>Offline harness measures models and writes <code>policy.json</code> the router obeys</td><td><span class="st use">✓ USED</span></td></tr>
+        <tr><td><b>Intent routing</b></td><td>Planner sends DOCUMENT queries to the retriever, GENERAL straight to the analyst</td><td><span class="st use">✓ USED</span></td></tr>
+        <tr><td><b>Keyword safety-net</b></td><td>Deterministic backstops when the tiny planner model mis-labels</td><td><span class="st use">✓ USED</span></td></tr>
+        <tr><td><b>Env override</b></td><td><code>ROUTER_FAST_MODEL</code> / <code>ROUTER_STRONG_MODEL</code> fallback when no policy file</td><td><span class="st opt">○ OPT-IN</span></td></tr>
+      </tbody>
+    </table>
+    <p class="note">Status reflects the code as of this revision — toggles live in <code>.env</code>
+      (<code>RETRIEVAL_*</code>, <code>MODEL_ROUTER_ENABLED</code>, <code>ROUTER_*</code>). Each row maps to a
+      <a href="strategies/index.html">deep-dive page</a> where applicable.</p>
   </section>
 
   <footer>

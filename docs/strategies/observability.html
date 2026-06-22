@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Observability (LangSmith) — Financial Agentic Platform</title>
+<link rel="stylesheet" href="strategy.css">
+</head>
+<body>
+
+<div class="crumbs">
+  <a href="../architecture.html">🏦 Architecture</a><span class="sep">›</span>
+  <a href="index.html">Strategies</a><span class="sep">›</span>
+  <span>Observability</span>
+</div>
+
+<header class="hero">
+  <p class="eyebrow">Strategy · Operations</p>
+  <h1>🔭 Observability (LangSmith)</h1>
+  <p class="sub">
+    Every LLM and agent call can be traced to LangSmith for inspection — grouped into named runs and
+    tagged with route, complexity and model. It's wired in once, driven entirely by environment
+    variables, and ships <b>off</b> because it's the only part of this otherwise-local app that talks
+    to the cloud.
+  </p>
+  <div class="badges">
+    <span class="badge">src/observability.py</span>
+    <span class="badge">LangSmith · smith.langchain.com</span>
+    <span class="badge off">off by default</span>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <section>
+    <h2><span class="dot"></span>What it gives you</h2>
+    <p class="lede">
+      When enabled, LangChain's callback system auto-captures the planner, retriever, analyst and
+      embedding calls — no per-call code. On top of that, this project adds two conveniences so the
+      traces are actually navigable.
+    </p>
+    <ul class="clean">
+      <li><b>Grouped runs.</b> A whole query is wrapped as one named run — <code>financial_query</code>
+        (and <code>suggest_questions</code>) — so the child LLM calls nest underneath it instead of
+        scattering as loose top-level events.</li>
+      <li><b>Filterable metadata.</b> Each run is tagged with <code>route</code>, <code>complexity</code>
+        and <code>analyst_model</code>, so in the UI you can filter to e.g. only <code>complex</code>
+        queries, or only answers written by <code>qwen2.5:3b</code>.</li>
+      <li><b>Latency &amp; token visibility.</b> Per-call timing and token usage come for free from the
+        LangChain instrumentation — useful for spotting which step dominates a slow CPU response.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>Turn it on (3 steps)</h2>
+    <div class="flow">
+      <div class="step"><div class="ico">🔑</div><h5>Get a key</h5><p>smith.langchain.com → Settings → API Keys (<code>lsv2_…</code>)</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">📝</div><h5>Edit .env</h5><p>set TRACING=true + paste key</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">🔁</div><h5>Restart</h5><p>traces upload immediately</p></div>
+    </div>
+    <pre><code><span class="tok-c"># .env — the LANGSMITH_* block</span>
+LANGSMITH_TRACING=<span class="tok-s">true</span>
+LANGSMITH_API_KEY=<span class="tok-s">lsv2_your_key_here</span>
+LANGSMITH_PROJECT=<span class="tok-s">financial-agentic-platform</span>
+LANGSMITH_ENDPOINT=<span class="tok-s">https://api.smith.langchain.com</span>   <span class="tok-c"># EU: https://eu.api.smith.langchain.com</span></code></pre>
+    <p class="note">No code changes are needed — LangChain auto-instruments the calls. Traces appear under the project name set above.</p>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>How it's wired</h2>
+    <p>
+      All the logic lives in <code>src/observability.py</code>, a thin layer over the
+      <code>langsmith</code> SDK with three entry points:
+    </p>
+    <table>
+      <thead><tr><th>Helper</th><th>Role</th></tr></thead>
+      <tbody>
+        <tr><td><code>@traceable</code></td><td>Re-exported decorator that groups a function's child LLM calls under one named run. A cheap pass-through when tracing is off, so it's safe to leave applied permanently.</td></tr>
+        <tr><td><code>add_metadata(**fields)</code></td><td>Tags the active run (route, model, …). A no-op when no run is on the stack, so it can sit in hot paths without guarding.</td></tr>
+        <tr><td><code>configure()</code></td><td>Logs once at startup whether traces are really uploading. Makes no network calls when disabled.</td></tr>
+        <tr><td><code>tracing_enabled()</code></td><td>Whether <code>LANGSMITH_TRACING</code> is truthy — drives the UI indicator.</td></tr>
+      </tbody>
+    </table>
+    <pre><code><span class="tok-c"># graph.py — the query is one grouped, tagged run</span>
+<span class="tok-f">@traceable</span>(run_type=<span class="tok-s">"chain"</span>, name=<span class="tok-s">"financial_query"</span>)
+<span class="tok-k">def</span> <span class="tok-f">stream_run</span>(self, query, on_token, ...):
+    ...
+    <span class="tok-f">add_metadata</span>(route=state.get(<span class="tok-s">"route"</span>),
+                 complexity=state.get(<span class="tok-s">"complexity"</span>),
+                 analyst_model=model)        <span class="tok-c"># → filterable in the LangSmith UI</span></code></pre>
+    <pre><code><span class="tok-c"># app.py — honour the env block once .env is loaded</span>
+observability.<span class="tok-f">configure</span>()                    <span class="tok-c"># logs the one-line status at startup</span></code></pre>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>Confirming it works</h2>
+    <ul class="clean">
+      <li><b>Startup log:</b> <code>🔭 LangSmith tracing ON → project 'financial-agentic-platform'</code>.
+        If <code>TRACING=true</code> but the API key is missing, it warns instead — runs won't upload.</li>
+      <li><b>In the app:</b> the sidebar shows a tracing indicator while it's enabled.</li>
+      <li><b>In LangSmith:</b> a <code>financial_query</code> run appears per question, with planner /
+        retriever / analyst calls nested inside and the route/complexity/model tags attached.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>Privacy &amp; cost</h2>
+    <div class="panel warn">
+      <h4>☁️ The one cloud dependency</h4>
+      <p>
+        Everything else in this platform runs 100% locally. LangSmith is a hosted service, so enabling
+        it ships your queries, retrieved context and answers to <code>smith.langchain.com</code>. That's
+        why it's <b>disabled by default</b> and stays off until you explicitly opt in — keep it off if
+        the documents are sensitive, or point <code>LANGSMITH_ENDPOINT</code> at a self-hosted instance.
+      </p>
+    </div>
+    <div class="panel tip">
+      <h4>🪶 Zero cost when off</h4>
+      <p>
+        <code>configure()</code> early-returns when tracing isn't truthy, and <code>add_metadata()</code>
+        is a no-op with no active run — so leaving the <code>@traceable</code> decorators in place adds
+        no latency and makes no network calls in the default local-only mode.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>Configuration knobs</h2>
+    <div class="kv">
+      <div>LANGSMITH_TRACING</div><div>false — master switch; set true to upload traces</div>
+      <div>LANGSMITH_API_KEY</div><div>your <code>lsv2_…</code> key; required for uploads</div>
+      <div>LANGSMITH_PROJECT</div><div>financial-agentic-platform — where runs are grouped in the UI</div>
+      <div>LANGSMITH_ENDPOINT</div><div>US default · <code>eu.api.smith.langchain.com</code> for EU · or self-hosted URL</div>
+    </div>
+    <div class="panel">
+      <h4>🤖 Headless / cron runs</h4>
+      <p>
+        Tracing follows the environment. If you run the app or the eval harness non-interactively,
+        make sure the same <code>LANGSMITH_*</code> vars are present there too — otherwise traces
+        silently won't upload.
+      </p>
+    </div>
+  </section>
+
+  <div class="pagenav">
+    <a class="prev" href="evals.html"><span class="dir">← Related</span><span class="ttl">Evals &amp; Results</span></a>
+    <a class="next" href="index.html"><span class="dir">Done →</span><span class="ttl">All strategies</span></a>
+  </div>
+
+  <footer>🏦 Financial Agentic Platform · Observability deep dive</footer>
+</div>
+</body>
+</html>

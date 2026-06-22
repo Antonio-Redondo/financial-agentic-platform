@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RAG &amp; Agent Strategies — Financial Agentic Platform</title>
+<link rel="stylesheet" href="strategy.css">
+<style>
+  .hub{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-top:8px}
+  .hub a.tile{
+    display:block;background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:20px;box-shadow:var(--shadow);position:relative;overflow:hidden;
+  }
+  .hub a.tile:hover{border-color:var(--cyan);text-decoration:none;transform:translateY(-2px);transition:.15s}
+  .hub a.tile::before{content:"";position:absolute;inset:0 0 auto 0;height:3px;background:var(--accent,var(--cyan))}
+  .hub .ico{font-size:1.7rem}
+  .hub h3{margin:8px 0 4px;color:var(--ink);font-size:1.05rem}
+  .hub p{margin:0;color:var(--muted);font-size:.85rem}
+  .hub .meta{margin-top:10px;font-size:.74rem;color:var(--cyan);font-family:ui-monospace,monospace}
+</style>
+</head>
+<body>
+
+<div class="crumbs">
+  <a href="../architecture.html">🏦 Architecture</a><span class="sep">›</span>
+  <span>Strategies</span>
+</div>
+
+<header class="hero">
+  <p class="eyebrow">Deep dives</p>
+  <h1>🧠 RAG &amp; Agent Strategies</h1>
+  <p class="sub">
+    How the platform turns documents into grounded answers — the design decisions behind
+    chunking, retrieval, re-ranking, prompting and model routing, each tied back to the
+    exact source file that implements it.
+  </p>
+</header>
+
+<div class="wrap">
+
+  <section style="margin-top:26px">
+    <div class="hub">
+      <a class="tile" href="chunking-strategy.html" style="--accent:var(--green)">
+        <div class="ico">✂️</div>
+        <h3>Chunking Strategy</h3>
+        <p>Why 500/100 recursive splitting, and how it stays inside the embedder's 512-token window.</p>
+        <div class="meta">vector_store.py</div>
+      </a>
+      <a class="tile" href="retrieval-strategy.html" style="--accent:var(--cyan)">
+        <div class="ico">🔎</div>
+        <h3>Retrieval Strategy</h3>
+        <p>Hybrid dense + sparse search fused with Reciprocal Rank Fusion, plus multi-query &amp; HyDE.</p>
+        <div class="meta">vector_store.py · retrieval.py</div>
+      </a>
+      <a class="tile" href="reranking-strategy.html" style="--accent:var(--violet)">
+        <div class="ico">🎯</div>
+        <h3>Re-ranking Strategy</h3>
+        <p>An LLM cross-encoder that over-fetches, scores 0–10, and trims to the most precise top-k.</p>
+        <div class="meta">retrieval.py</div>
+      </a>
+      <a class="tile" href="prompt-optimization.html" style="--accent:var(--blue)">
+        <div class="ico">📝</div>
+        <h3>Prompt Optimization</h3>
+        <p>The router, analyst, rewrite and rerank prompts — each shaped for tiny local models.</p>
+        <div class="meta">graph.py · retrieval.py</div>
+      </a>
+      <a class="tile" href="model-routing-strategy.html" style="--accent:var(--orange)">
+        <div class="ico">🔀</div>
+        <h3>Model Routing Strategy</h3>
+        <p>Eval-derived policy that maps each query's complexity to the right local model.</p>
+        <div class="meta">router.py · evals/</div>
+      </a>
+      <a class="tile" href="evals.html" style="--accent:var(--amber)">
+        <div class="ico">⚖️</div>
+        <h3>Evals &amp; Results</h3>
+        <p>The benchmark that earns the policy — dataset, metrics, and the latest measured numbers.</p>
+        <div class="meta">evals/run_evals.py</div>
+      </a>
+      <a class="tile" href="observability.html" style="--accent:var(--red)">
+        <div class="ico">🔭</div>
+        <h3>Observability</h3>
+        <p>LangSmith tracing — grouped, tagged runs for every LLM call; opt-in, the one cloud hook.</p>
+        <div class="meta">src/observability.py</div>
+      </a>
+      <a class="tile" href="../architecture.html" style="--accent:var(--pink)">
+        <div class="ico">🗺️</div>
+        <h3>Full Architecture</h3>
+        <p>Back to the system overview: layers, the LangGraph agent graph, data flow and topology.</p>
+        <div class="meta">architecture.html</div>
+      </a>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>How the pieces fit</h2>
+    <p class="lede">
+      A question flows left-to-right. Each stage below has a dedicated page; the defaults are tuned
+      for fast CPU inference, and every LLM-powered enhancement is an opt-in <code>.env</code> toggle.
+    </p>
+    <div class="flow">
+      <div class="step"><div class="ico">✂️</div><h5>Chunk</h5><p>500 chars / 100 overlap</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">🔢</div><h5>Embed</h5><p>mxbai-embed-large · 1024-dim</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">🔎</div><h5>Retrieve</h5><p>hybrid · RRF</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">🎯</div><h5>Re-rank</h5><p>LLM cross-encoder (opt-in)</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">📝</div><h5>Prompt</h5><p>grounded analyst prompt</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">🔀</div><h5>Route</h5><p>fast ⇄ strong model</p></div>
+    </div>
+  </section>
+
+  <footer>
+    🏦 Financial Agentic Platform · Strategy deep dives · derived from the project source
+  </footer>
+
+</div>
+</body>
+</html>
