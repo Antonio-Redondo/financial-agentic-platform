@@ -32,6 +32,7 @@ from .vector_store import VectorStore
 from . import retrieval
 from . import router
 from ..observability import traceable, add_metadata
+from ..guardrails import get_guardrails
 
 
 def _emit(msg: str) -> str:
@@ -110,6 +111,9 @@ class FinancialGraph:
         self.vector_store = vector_store
         self.model = os.getenv("OLLAMA_MODEL", "llama3.2:1b")
         self.use_router = router.router_enabled()
+        # Security layer: input validation, indirect-injection neutralization,
+        # and PII redaction at the context / output boundaries.
+        self.guardrails = get_guardrails()
         # Per-model analyst clients, built on demand and reused across queries.
         self._analyst_cache: Dict[str, object] = {}
         self._build_llms()
@@ -285,7 +289,9 @@ class FinancialGraph:
         """Route the query on two axes: documents needed? and simple vs complex?"""
         query = state["query"]
         history = state.get("history") or []
-        _emit(f"\n=== 🧠 Multi-agent run | query: {query!r} ===")
+        # Scrub PII from the logged query so server logs / traces never carry
+        # raw SSNs, account numbers, etc.
+        _emit(f"\n=== 🧠 Multi-agent run | query: {self.guardrails.scrub_for_log(query)!r} ===")
 
         # Conversational rewrite (cheap, default on) — used for BOTH routing
         # and retrieval so a follow-up like "what about Q2?" routes correctly.
@@ -295,7 +301,7 @@ class FinancialGraph:
                 query, history, self.planner_llm)
             if rewritten and rewritten.strip().lower() != query.strip().lower():
                 search_query = rewritten
-                _emit(f"🪄 Rewrite → {search_query!r}")
+                _emit(f"🪄 Rewrite → {self.guardrails.scrub_for_log(search_query)!r}")
 
         prompt = (
             "You are a routing agent in a financial analysis system.\n"
@@ -393,6 +399,12 @@ class FinancialGraph:
                     f"[Source {i}: {fname} | relevance {score:.2f}]\n{r.get('content', '')}"
                 )
             context = "\n\n".join(blocks)
+            # Guardrails: neutralize indirect prompt-injection smuggled in via
+            # uploaded documents and mask any PII before the context reaches the
+            # analyst prompt (and, through it, the answer).
+            context, guard_notes = self.guardrails.sanitize_context(context)
+            for note in guard_notes:
+                log = log + [_emit(f"🛡️ Guardrail → {note}")]
             log = log + [_emit(
                 f"🔎 Retriever ({mode}) → {len(unique)} relevant chunk(s) found")]
         else:
@@ -424,8 +436,17 @@ class FinancialGraph:
                 "log": self._analyst_log(state, model)}
 
     def finalize_node(self, state: AgentState) -> AgentState:
-        return {"answer": state.get("analysis", ""),
-                "log": state.get("log", []) + [_emit("✅ Finalized answer")]}
+        # Output guardrail: redact any PII (SSN, bank account, card, routing,
+        # email, …) the model may have surfaced before the answer is shown,
+        # stored in chat history, or sent to a trace. In the streaming path raw
+        # tokens reach the screen live, but the UI re-renders this redacted text
+        # as the final, stored answer.
+        result = self.guardrails.filter_output(state.get("analysis", ""))
+        log = state.get("log", [])
+        if result.redacted:
+            log = log + [_emit(f"🛡️ Guardrail → {result.notes[0]}")]
+        return {"answer": result.text,
+                "log": log + [_emit("✅ Finalized answer")]}
 
     # ------------------------------------------------------------- conditionals
     @staticmethod
@@ -505,13 +526,18 @@ class FinancialGraph:
         add_metadata(route=state.get("route"),
                      complexity=state.get("complexity"),
                      analyst_model=model)
+        # Wrap the live token callback so PII is masked in the stream itself,
+        # not just in the final stored answer. The raw text is still buffered
+        # for state["analysis"]; finalize_node redacts that copy for storage.
+        stream = self.guardrails.output_stream(on_token)
         pieces = []
         for chunk in self._analyst_for(model).stream(
                 [HumanMessage(content=self._analyst_prompt(state))]):
             tok = chunk.content if hasattr(chunk, "content") else str(chunk)
             if tok:
                 pieces.append(tok)
-                on_token(tok)
+                stream.feed(tok)
+        stream.flush()
         state["analysis"] = "".join(pieces)
         state["analyst_model"] = model
         state["log"] = self._analyst_log(state, model)

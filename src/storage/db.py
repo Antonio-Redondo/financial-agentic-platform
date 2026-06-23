@@ -3,15 +3,30 @@
 Uses raw psycopg3 with pgvector's psycopg adapter so vectors flow as native
 Python lists / numpy arrays without manual casting. The schema is created on
 the first call to :func:`ensure_schema`; subsequent calls are no-ops.
+
+Connections are served from a process-wide :class:`psycopg_pool.ConnectionPool`
+so the per-query "open TCP + auth + register adapter" cost is paid once per
+pooled connection instead of on every call. If ``psycopg_pool`` is unavailable
+or ``DB_POOL_ENABLED=false``, :func:`get_conn` transparently falls back to the
+original open-a-fresh-connection behaviour, so the app never hard-depends on
+the pool.
 """
 from __future__ import annotations
 
 import os
+import threading
 from contextlib import contextmanager
-from typing import Iterator
+from typing import Iterator, Optional
 
 import psycopg
 from pgvector.psycopg import register_vector
+
+try:  # optional dependency — fall back to direct connections if absent
+    from psycopg_pool import ConnectionPool
+except Exception:  # noqa: BLE001
+    ConnectionPool = None  # type: ignore[assignment]
+
+_TRUTHY = {"1", "true", "yes", "on"}
 
 
 def _database_url() -> str:
@@ -28,13 +43,84 @@ def embedding_dim() -> int:
     return int(os.getenv("EMBEDDING_DIM", "1024"))
 
 
+# --------------------------------------------------------------- connection pool
+_pool: "Optional[ConnectionPool]" = None
+_pool_lock = threading.Lock()
+_pool_disabled = False  # set if pool creation fails → use direct connections
+
+
+def _pool_enabled() -> bool:
+    return (
+        ConnectionPool is not None
+        and not _pool_disabled
+        and os.getenv("DB_POOL_ENABLED", "true").strip().lower() in _TRUTHY
+    )
+
+
+def _configure_connection(conn: psycopg.Connection) -> None:
+    """Run once per pooled connection when it is created."""
+    register_vector(conn)
+
+
+def _get_pool() -> "Optional[ConnectionPool]":
+    """Lazily build the shared pool. Returns None if pooling is unavailable."""
+    global _pool, _pool_disabled
+    if not _pool_enabled():
+        return None
+    if _pool is None:
+        with _pool_lock:
+            if _pool is None and not _pool_disabled:
+                try:
+                    _pool = ConnectionPool(
+                        conninfo=_database_url(),
+                        min_size=int(os.getenv("DB_POOL_MIN_SIZE", "1")),
+                        max_size=int(os.getenv("DB_POOL_MAX_SIZE", "10")),
+                        timeout=float(os.getenv("DB_POOL_TIMEOUT", "30")),
+                        max_idle=float(os.getenv("DB_POOL_MAX_IDLE", "300")),
+                        configure=_configure_connection,
+                        kwargs={"autocommit": False},
+                        open=True,
+                    )
+                except Exception as e:  # noqa: BLE001 — degrade, never crash
+                    print(f"⚠️  DB pool unavailable, using direct connections: {e}",
+                          flush=True)
+                    _pool_disabled = True
+                    _pool = None
+    return _pool
+
+
+def close_pool() -> None:
+    """Close the shared pool (e.g. on shutdown / in tests)."""
+    global _pool
+    with _pool_lock:
+        if _pool is not None:
+            _pool.close()
+            _pool = None
+
+
 @contextmanager
 def get_conn() -> Iterator[psycopg.Connection]:
-    """Open a short-lived connection with pgvector adapters registered."""
+    """Yield a pgvector-ready connection.
+
+    Served from the pool when available; otherwise a short-lived direct
+    connection (the original behaviour). The transaction is committed on a
+    clean exit and rolled back on error either way, so existing explicit
+    ``conn.commit()`` calls remain correct (the final commit is then a no-op).
+    """
+    pool = _get_pool()
+    if pool is not None:
+        with pool.connection() as conn:  # returned to the pool on exit
+            yield conn
+        return
+
     conn = psycopg.connect(_database_url(), autocommit=False)
     try:
         register_vector(conn)
         yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
 

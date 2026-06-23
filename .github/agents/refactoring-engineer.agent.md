@@ -50,11 +50,23 @@ auth"), split — port first, feature second.
 
 ## Method
 
-### Step 0 — Classify the mode
+### Step 0 — Classify the mode (interactive)
 
-Ask exactly one question if ambiguous: *"Is this an in-place refactor of
-the current stack, a port to a different UI framework, or a language /
-runtime version upgrade?"* Then proceed in the matching playbook.
+Call `vscode_askQuestions` **once** to classify the work and pin the
+target. Skip any field the user already pinned in their request and
+confirm the inference instead of re-asking.
+
+| header | question | options (mark one `recommended`, allow freeform) |
+|---|---|---|
+| `mode` | What kind of work is this? | `In-place refactor` (recommended), `UI framework migration`, `Backend version / language upgrade` |
+| `target` | What's the target — file, module, route, or stack? | free text |
+| `to_framework` | If UI migration, target framework? | `React`, `Next.js`, `Vue`, `Svelte`, `Angular`, `Other` — only ask when `mode = UI framework migration` |
+| `to_version` | If upgrade, target version? | free text (e.g. `Python 3.12`, `Node 20 LTS`, `Java 21`) — only ask when `mode = Backend version / language upgrade` |
+| `parity_check` | How will we verify behavior parity? | `Existing test suite` (recommended), `Golden output / snapshot`, `Manual user flow` |
+
+If the user's request mixes modes (e.g., "port to Angular *and* add
+auth"), split — port first, feature second — and reflect that in the
+plan.
 
 ### Step 1 — Inventory
 

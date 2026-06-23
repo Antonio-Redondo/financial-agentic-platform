@@ -3,7 +3,9 @@ from dotenv import load_dotenv
 
 from .vector_store import VectorStore
 from .graph import FinancialGraph
+from . import semantic_cache
 from ..ingestion.pipeline import documents_dir, ingest_folder
+from ..guardrails import get_guardrails
 
 load_dotenv()
 
@@ -25,6 +27,8 @@ class FinancialAgent:
     def __init__(self):
         self.vector_store = VectorStore()
         self.graph = FinancialGraph(self.vector_store)
+        self.guardrails = get_guardrails()
+        self.cache = semantic_cache.get_cache()
         # Ingest anything sitting in the drop folder before serving queries.
         try:
             self.last_ingestion = ingest_folder(self.vector_store)
@@ -56,7 +60,34 @@ class FinancialAgent:
     def rescan_documents(self):
         """Re-run the folder ingestion (for the sidebar's manual trigger)."""
         self.last_ingestion = ingest_folder(self.vector_store)
+        # New/changed chunks can change answers → drop cached responses.
+        self.cache.clear()
         return self.last_ingestion
+
+    def _redact_history(self, history: Optional[List[Dict]]) -> Optional[List[Dict]]:
+        """PII-redact chat-history turns before they reach the rewrite model.
+
+        Assistant turns are already output-redacted, but user turns are stored
+        raw in the UI session — scrub them so the conversational rewrite (and
+        any trace of it) never carries raw PII."""
+        if not history:
+            return history
+        out = []
+        for m in history:
+            content = m.get("content", "")
+            out.append({**m, "content": self.guardrails.redact_for_prompt(content)})
+        return out
+
+    def _cache_namespace(self) -> str:
+        """Scope cached answers so they self-invalidate when a cached answer
+        would become wrong: on model/router change, or when the corpus changes
+        (chunk count moves as documents are added / removed / re-chunked)."""
+        model_part = "router" if self.use_router else self.model
+        try:
+            corpus = self.vector_store.chunk_count()
+        except Exception:  # noqa: BLE001
+            corpus = "na"
+        return f"{model_part}|{corpus}"
 
     def set_model(self, model: str) -> None:
         """Switch the active model in place (uploaded documents are preserved),
@@ -76,20 +107,63 @@ class FinancialAgent:
                 conversational rewrite can resolve follow-ups.
             filters: optional metadata filters forwarded to the retriever.
         """
+        # Input guardrail (LLM01/LLM10): reject over-long input and, when
+        # configured to block, instruction-override / jailbreak attempts before
+        # any model is invoked.
+        decision = self.guardrails.check_input(query)
+        for note in decision.notes:
+            print(f"🛡️ Input guardrail → {note}", flush=True)
+        if not decision.allowed:
+            return {
+                "output": decision.reason,
+                "trace": [f"🛡️ Blocked by guardrails: {n}" for n in decision.notes],
+                "blocked": True,
+            }
+
+        # Prompt-bound PII redaction (default on): scrub the query and chat
+        # history BEFORE they reach any model call, the embedder, or the cache —
+        # so the planner/analyst/rewrite never see raw PII and nothing raw is
+        # sent to an off-machine trace. Toggle with GUARDRAILS_PII_REDACT_PROMPTS.
+        query = self.guardrails.redact_for_prompt(query)
+        history = self._redact_history(history)
+
+        # Semantic response cache. Only used for standalone questions: a
+        # follow-up (history) is rewritten using the conversation, and filters
+        # change retrieval, so the query text alone wouldn't identify the same
+        # answer in those cases.
+        cacheable = not history and not filters
+        namespace = self._cache_namespace()
+        if cacheable:
+            hit = self.cache.get(query, namespace)
+            if hit is not None:
+                sim = hit.get("cache_similarity")
+                print(f"⚡ Cache hit ({hit.get('cache_kind')}, sim={sim}) for "
+                      f"{self.guardrails.scrub_for_log(query)!r}", flush=True)
+                if on_token:           # paint the answer into the live area
+                    on_token(hit["output"])
+                hit["trace"] = [f"⚡ Served from semantic cache "
+                                f"({hit.get('cache_kind')} match, "
+                                f"similarity {sim})"] + (hit.get("trace") or [])
+                return hit
+
         try:
             result = self.graph.run(query, on_token=on_token,
                                     history=history, filters=filters)
             answer = (result.get("answer")
                       or result.get("analysis")
                       or "No analysis available.")
-            return {
+            response = {
                 "output": answer,
                 "trace": result.get("log", []),
                 "route": result.get("route"),
                 "complexity": result.get("complexity"),
                 "analyst_model": result.get("analyst_model"),
                 "search_query": result.get("search_query"),
+                "cached": False,
             }
+            if cacheable:
+                self.cache.put(query, response, namespace)
+            return response
         except Exception as e:
             return {
                 "output": (

@@ -11,23 +11,27 @@ You design new agents. You run a short interview, then write a complete agent ma
 
 ### 1. Interview
 
-Ask these five questions in **one** message. Offer a recommended default for each so the user can reply "all good" and move on.
+Use the `vscode_askQuestions` tool to collect answers in **one** call. Before calling it, list `.github/agents/` and infer a name candidate from the user's stated intent so every question has a concrete recommended default. Skip any question the user has already answered in their request — confirm your inference instead of re-asking.
 
-1. **Name** — kebab-case identifier (e.g. `data-migration-auditor`). Propose one from the user's intent.
-2. **Role** — the persona and seniority the agent embodies (e.g. "Staff database engineer").
-3. **Mission** — the one job this agent exists to do, in a sentence.
-4. **Scope** — what it covers and, critically, what it must NOT do.
-5. **Output** — what the agent returns (report, patch, checklist, verdict) and any format the user requires.
+Pass exactly these five questions to `vscode_askQuestions`, in order. Put the recommended default in the question's `message` so the user can accept by leaving the field blank or typing "ok".
 
-If the user's request already answers some of these, skip those questions and confirm your inference instead of re-asking.
+| header   | question                                                            | options                                                                                                                | multiSelect |
+|----------|---------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------|-------------|
+| `name`    | Name for the agent? (kebab-case)                                    | free text — propose one in `message`                                                                                  | —           |
+| `role`    | Role and seniority?                                                 | `Staff engineer`, `Senior engineer`, `Principal engineer`, `Domain specialist` (one marked `recommended`)               | false       |
+| `mission` | One-sentence mission — what is this agent for?                      | free text                                                                                                              | —           |
+| `scope`   | Scope — what it covers and what it must NOT do.                     | free text; in `message`, prefill the standard guardrails (no edits to `evals/results/*.json`, no hardcoded models/URLs) | —           |
+| `output`  | What does it return?                                                | `Findings report`, `Patch diff`, `Checklist`, `Verdict + rationale` (mark the recommended one)                          | true        |
+
+Leave `allowFreeformInput` at its default (true) on the optioned questions so the user can override.
 
 ### 2. Confirm
 
-Echo back the resolved name, role, mission, and a one-line plan. Proceed unless the user objects.
+Echo back the resolved name, role, mission, and a one-line plan in plain text. Proceed unless the user objects. Do not re-open the question UI for confirmation — a single prose message is enough.
 
 ### 3. Generate
 
-Write the file to `.github/agents/<name>.md` using the template below. Fill every section with specifics drawn from the interview — no placeholders left behind.
+Write the file to `.github/agents/<name>.agent.md` using the template below. Fill every section with specifics drawn from the interview — no placeholders left behind. Before writing, re-check `.github/agents/` for a name collision; if one exists, propose an alternative and stop.
 
 ## Output Template
 
@@ -72,7 +76,8 @@ You are <role>. <One-line mission and operating stance.>
 3. Give every agent an explicit scope boundary — what it must NOT do is as important as what it does.
 4. Mirror the structure of existing agents (`code-reviewer`, `security-auditor`) so the set stays consistent.
 5. No empty sections, no `TODO`, no lorem filler. If a section doesn't apply, remove it.
-6. Keep the interview to one round when possible. Default aggressively; ask only on genuine ambiguity.
+6. Keep the interview to one `vscode_askQuestions` call. Default aggressively; only ask follow-ups if a critical answer is genuinely ambiguous.
+7. Never request secrets (API keys, tokens, passwords) through `vscode_askQuestions` — that tool sends answers through the model.
 
 ## Composition
 

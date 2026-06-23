@@ -19,6 +19,7 @@ from datetime import datetime
 from typing import List, Optional
 
 from .loaders import load_text
+from ..guardrails import get_guardrails
 
 
 def _hash_text(text: str) -> str:
@@ -64,6 +65,14 @@ def ingest_file(vector_store, path: str) -> Optional[int]:
     if not text.strip():
         return None
 
+    # Guardrail (LLM02): scan for PII. Records what was found as metadata and,
+    # when GUARDRAILS_PII_REDACT_ON_INGEST=true, redacts before embedding so raw
+    # PII never lands in pgvector. The content hash is taken AFTER this step so
+    # dedupe stays consistent with what is actually stored.
+    text, pii_summary = get_guardrails().scan_document(text)
+    if pii_summary:
+        print(f"🛡️ PII detected in {os.path.basename(path)}: {pii_summary}", flush=True)
+
     stat = os.stat(path)
     extension = os.path.splitext(path)[1].lstrip(".").lower() or None
     filename = os.path.basename(path)
@@ -78,6 +87,7 @@ def ingest_file(vector_store, path: str) -> Optional[int]:
         extra_metadata={
             "source": "folder_scan",
             "ingested_at": datetime.utcnow().isoformat() + "Z",
+            "pii_findings": pii_summary,
         },
     )
     return chunks
@@ -99,6 +109,13 @@ def ingest_folder(vector_store, folder: Optional[str] = None) -> IngestionResult
                 result.skipped_empty += 1
                 continue
 
+            # PII guardrail: detect (and optionally redact) before hashing so
+            # the dedupe hash matches what gets embedded.
+            text, pii_summary = get_guardrails().scan_document(text)
+            if pii_summary:
+                print(f"🛡️ PII detected in {os.path.basename(path)}: {pii_summary}",
+                      flush=True)
+
             content_hash = _hash_text(text)
             if known.get(path) == content_hash:
                 result.skipped_unchanged += 1
@@ -116,6 +133,7 @@ def ingest_folder(vector_store, folder: Optional[str] = None) -> IngestionResult
                 extra_metadata={
                     "source": "folder_scan",
                     "ingested_at": datetime.utcnow().isoformat() + "Z",
+                    "pii_findings": pii_summary,
                 },
             )
             if written > 0:

@@ -180,6 +180,8 @@
     <span class="badge">Ollama · llama3.2:1b ⇄ qwen2.5:3b</span>
     <span class="badge">Model router · evals</span>
     <span class="badge">pgvector hybrid RAG</span>
+    <span class="badge">🛡️ Guardrails · PII redaction</span>
+    <span class="badge">⚡ Semantic cache</span>
     <span class="badge">100% local</span>
   </div>
   <p style="margin:18px 0 0;font-size:.95rem">
@@ -201,6 +203,9 @@
       classifies its complexity, a retriever pulls grounding context with hybrid search, and an analyst writes
       the answer (streamed token-by-token). A <b>data-driven model router</b> picks which local model writes the
       answer — fast for simple questions, strong for complex ones — using a policy measured by the eval harness.
+      A <b>guardrails layer</b> validates input, neutralizes prompt-injection, and redacts PII (SSN, bank
+      account, card, routing, email…) at the input, context and output boundaries, while a <b>semantic
+      response cache</b> and a <b>pgvector connection pool</b> cut latency on repeat questions.
       Everything is served locally by Ollama; no cloud account or calls are required.
     </p>
 
@@ -221,6 +226,7 @@
           <li><span>🧭</span><div><b>Planner</b><small>graph.py — route (document/general) + complexity (simple/complex)</small></div></li>
           <li><span>🔀</span><div><b>Model router</b><small>router.py — complexity → fast vs strong model (policy from evals)</small></div></li>
           <li><span>🔎</span><div><b>Retriever → ✍️ Analyst</b><small>hybrid pgvector search · write grounded, streamed answer</small></div></li>
+          <li><span>🛡️</span><div><b>Guardrails + PII</b><small>guardrails/ — input validation · injection defense · PII redaction</small></div></li>
         </ul>
       </div>
       <div class="layer local">
@@ -228,8 +234,8 @@
         <h3>🖥️ Local Engine</h3>
         <ul>
           <li><span>🟢</span><div><b>Ollama</b><small>llama3.2:1b · qwen2.5:3b · mxbai-embed-large @ :11434</small></div></li>
-          <li><span>🗄️</span><div><b>Postgres + pgvector</b><small>documents &amp; chunks · HNSW (cosine) + GIN (full-text)</small></div></li>
-          <li><span>🔌</span><div><b>No cloud dependency</b><small>fully offline — no AWS, no external APIs</small></div></li>
+          <li><span>🗄️</span><div><b>Postgres + pgvector</b><small>documents &amp; chunks · HNSW (cosine) + GIN · pooled connections</small></div></li>
+          <li><span>⚡</span><div><b>Semantic response cache</b><small>embedding-keyed · skips re-generation on repeat questions</small></div></li>
         </ul>
       </div>
     </div>
@@ -277,6 +283,15 @@
         harness found the strong model only earns its keep on short definitional answers. The Planner can also
         skip the Retriever and go straight to the Analyst for general-knowledge questions. Streaming runs on the
         caller's thread so tokens reach the Streamlit UI live.
+      </div>
+      <div class="loopnote" style="color:var(--green)">
+        🛡️ <b>Guardrails wrap the graph:</b> the <b>input</b> is validated (length, prompt-injection) and the
+        query + history are <b>PII-redacted before any model call</b> (so nothing raw reaches the planner,
+        analyst, or an off-machine trace); <b>retrieved context</b> is scanned for indirect injection and PII
+        before it reaches the Analyst; the <b>Analyst's answer</b> is PII-redacted <b>in the live token stream</b>
+        and again in Finalize before it's shown or stored.
+        ⚡ A <b>semantic cache</b> sits in front of the whole graph — an exact or near-duplicate standalone
+        question returns the prior answer and skips planning, retrieval and generation entirely.
       </div>
     </div>
 
@@ -409,6 +424,8 @@
       <div class="arrow">→</div>
       <div class="step"><div class="ico">🧾</div><h4>Extract</h4><p>pypdf, python-docx, openpyxl, BeautifulSoup…</p></div>
       <div class="arrow">→</div>
+      <div class="step"><div class="ico">🛡️</div><h4>PII scan</h4><p>detect + tag (optional redact-on-ingest)</p></div>
+      <div class="arrow">→</div>
       <div class="step"><div class="ico">✂️</div><h4>Chunk</h4><p>500 chars / 100 overlap</p></div>
       <div class="arrow">→</div>
       <div class="step"><div class="ico">🔢</div><h4>Embed</h4><p>mxbai-embed-large (1024-dim)</p></div>
@@ -422,14 +439,20 @@
     <div class="flowrow">
       <div class="step"><div class="ico">❓</div><h4>User query</h4><p>natural language + chat history</p></div>
       <div class="arrow">→</div>
+      <div class="step"><div class="ico">🛡️</div><h4>Input guard</h4><p>length cap · prompt-injection scan</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">⚡</div><h4>Cache</h4><p>exact / semantic hit → return early</p></div>
+      <div class="arrow">→</div>
       <div class="step"><div class="ico">🧭</div><h4>Plan + Route</h4><p>document/general · simple/complex</p></div>
       <div class="arrow">→</div>
-      <div class="step"><div class="ico">🔎</div><h4>Retrieve</h4><p>hybrid dense + sparse (RRF)</p></div>
+      <div class="step"><div class="ico">🔎</div><h4>Retrieve</h4><p>hybrid (RRF) · context PII + injection guard</p></div>
       <div class="arrow">→</div>
       <div class="step"><div class="ico">✍️</div><h4>Analyze</h4><p>routed model · streamed answer</p></div>
       <div class="arrow">→</div>
-      <div class="step"><div class="ico">📈</div><h4>Respond</h4><p>answer + agent trace + model</p></div>
+      <div class="step"><div class="ico">📈</div><h4>Respond</h4><p>PII-redacted answer + trace + model</p></div>
     </div>
+    <p class="note">On a cache miss the answer is stored (scoped to model + corpus signature) for next time;
+      follow-ups that depend on chat history and filtered searches bypass the cache for correctness.</p>
   </section>
 
   <!-- Components -->
@@ -494,7 +517,30 @@
         <ul>
           <li>psycopg3 + pgvector; schema bootstrap</li>
           <li>HNSW (cosine) + GIN (tsvector) indexes</li>
+          <li><b>psycopg-pool</b> connection pool (graceful fallback)</li>
           <li>Ollama <code>mxbai-embed-large</code> embeddings</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="accent" style="background:var(--green)"></div>
+        <h3>🛡️ Guardrails &amp; PII</h3>
+        <p class="note">src/guardrails/</p>
+        <ul>
+          <li>Input: length cap + prompt-injection scan</li>
+          <li>Context: indirect-injection neutralize + PII mask</li>
+          <li>Output: PII redaction before display / trace</li>
+          <li>Detectors: SSN, EIN, card, IBAN, routing, account, email, phone, IP</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="accent" style="background:var(--cyan)"></div>
+        <h3>⚡ Semantic Cache</h3>
+        <p class="note">src/agents/semantic_cache.py</p>
+        <ul>
+          <li>Exact (O(1)) + embedding-similarity hits</li>
+          <li>Bounded LRU + optional TTL</li>
+          <li>Namespaced by model + corpus signature</li>
+          <li>Skips plan/retrieve/generate on a hit</li>
         </ul>
       </div>
       <div class="card">
@@ -550,9 +596,128 @@
     </div>
   </section>
 
+  <!-- Security & Guardrails -->
+  <section>
+    <h2><span class="num">06</span>Security &amp; Guardrails (PII)</h2>
+    <p class="lede">
+      A local, dependency-free <b>guardrails layer</b> (<code>src/guardrails/</code>) enforced at the three I/O
+      boundaries of the agent graph. It defends against the relevant <b>OWASP-LLM</b> risks — prompt injection
+      (direct &amp; indirect), sensitive-information disclosure, and unbounded input — and redacts personally
+      identifiable / financial data so it never reaches the screen, the logs, or an off-machine trace.
+      Everything is env-tunable and <b>fails open</b> (a guardrail error never blocks a query).
+    </p>
+
+    <div class="flowrow">
+      <div class="step"><div class="ico">⬇️</div><h4>Input</h4><p>length cap · injection scan · redact PII in query + history before any model</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">📄</div><h4>Context</h4><p>neutralize indirect injection · mask PII in chunks</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">⬆️</div><h4>Output</h4><p>redact PII in the live stream + final answer</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">🪵</div><h4>Logs</h4><p>PII-safe stdout / trace scrubbing</p></div>
+    </div>
+
+    <div class="grid" style="margin-top:18px">
+      <div class="card">
+        <div class="accent" style="background:var(--green)"></div>
+        <h3>🔢 PII detectors</h3>
+        <ul>
+          <li>SSN, EIN, credit card (Luhn), IBAN (mod-97), ABA routing (checksum)</li>
+          <li>Bank account, email, phone, IP</li>
+          <li>Checksums + context-keyword gating cut false positives</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="accent" style="background:var(--cyan)"></div>
+        <h3>🎭 Masking strategies</h3>
+        <ul>
+          <li><b>partial</b> — keep last 4 (e.g. <code>•••-••-1234</code>)</li>
+          <li><b>label</b> / <b>hash</b> / <b>remove</b> variants</li>
+          <li><code>GUARDRAILS_PII_STRATEGY</code></li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="accent" style="background:var(--violet)"></div>
+        <h3>🧱 Injection defense</h3>
+        <ul>
+          <li>Heuristics: override / role-reset / jailbreak / exfil / delimiter-spoof</li>
+          <li>Direct: <code>flag</code> or <code>block</code> the query</li>
+          <li>Indirect: defang instruction-like lines in retrieved docs</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="accent" style="background:var(--amber)"></div>
+        <h3>⚙️ Posture &amp; config</h3>
+        <ul>
+          <li>Prompt / output / stream / context / log redaction <b>on by default</b></li>
+          <li>Ingest redaction off by default (detect + tag in metadata)</li>
+          <li><code>GUARDRAILS_*</code> in <code>.env</code>; master <code>GUARDRAILS_ENABLED</code></li>
+        </ul>
+      </div>
+    </div>
+    <p class="note">With <code>GUARDRAILS_PII_REDACT_PROMPTS=true</code> (default) the query and chat history are
+      masked before any model call, so even with LangSmith tracing on, traces carry no raw PII; embeddings run
+      locally on Ollama. Disable tracing for a fully air-gapped posture, and set
+      <code>GUARDRAILS_PII_REDACT_ON_INGEST=true</code> to keep raw PII out of pgvector at rest.</p>
+  </section>
+
+  <!-- Performance: cache & pool -->
+  <section>
+    <h2><span class="num">07</span>Performance — Caching &amp; Connection Pool</h2>
+    <p class="lede">
+      Two layers shave latency without touching answer quality: a <b>semantic response cache</b> that returns a
+      prior answer for repeated or near-duplicate questions, and a <b>pgvector connection pool</b> that reuses
+      warm database connections instead of opening a fresh one per query.
+    </p>
+    <div class="grid">
+      <div class="card">
+        <div class="accent" style="background:var(--cyan)"></div>
+        <h3>⚡ Semantic response cache</h3>
+        <p class="note">src/agents/semantic_cache.py</p>
+        <ul>
+          <li><b>Exact hits</b> are O(1) (normalized text) — no embedding call</li>
+          <li><b>Semantic hits</b> match on query-embedding cosine ≥ <code>RESPONSE_CACHE_THRESHOLD</code> (0.97)</li>
+          <li>Bounded <b>LRU</b> (<code>RESPONSE_CACHE_MAX</code>) + optional <b>TTL</b></li>
+          <li>Self-invalidates: namespaced by <code>model + chunk_count</code>; cleared on re-ingest</li>
+          <li>Only standalone questions cached (history / filters bypass it)</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="accent" style="background:var(--green)"></div>
+        <h3>🔌 Connection pool</h3>
+        <p class="note">src/storage/db.py · psycopg-pool</p>
+        <ul>
+          <li>Process-wide pool; <code>register_vector</code> per connection</li>
+          <li><code>DB_POOL_MIN_SIZE</code> / <code>MAX_SIZE</code> / <code>TIMEOUT</code> / <code>MAX_IDLE</code></li>
+          <li><code>get_conn()</code> API unchanged across all call sites</li>
+          <li>Graceful fallback to direct connections if unavailable</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="accent" style="background:var(--blue)"></div>
+        <h3>🟢 Existing reuse caches</h3>
+        <p class="note">embeddings.py · graph.py · router.py</p>
+        <ul>
+          <li><code>@lru_cache</code> embedder &amp; per-model analyst clients</li>
+          <li>Eval policy + guardrail config read once per process</li>
+          <li>Content-hash dedupe skips re-embedding unchanged docs</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="accent" style="background:var(--violet)"></div>
+        <h3>📊 Observable</h3>
+        <ul>
+          <li>Sidebar shows cache size + hit-rate; clear button</li>
+          <li>Cached turns carry a <b>⚡ cached</b> chip + similarity</li>
+          <li>Trace records the cache kind (exact / semantic)</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
   <!-- Deep-dive strategies -->
   <section>
-    <h2><span class="num">06</span>Deep-Dive Strategies</h2>
+    <h2><span class="num">08</span>Deep-Dive Strategies</h2>
     <p class="lede">
       The RAG and agent design decisions — each on its own page, crisp and tied back to the exact
       source file that implements it. Start at the
@@ -644,7 +809,7 @@
 
   <!-- Tech stack -->
   <section>
-    <h2><span class="num">07</span>Technology Stack</h2>
+    <h2><span class="num">09</span>Technology Stack</h2>
     <div class="stack">
       <div class="card">
         <h3>🎨 Frontend</h3>
@@ -660,7 +825,19 @@
       <div class="card">
         <h3>💾 Data / Retrieval</h3>
         <span class="pill">PostgreSQL + pgvector</span><span class="pill">psycopg3</span>
+        <span class="pill">psycopg-pool</span>
         <span class="pill">mxbai-embed-large</span><span class="pill">Hybrid (dense + BM25) · RRF</span>
+      </div>
+      <div class="card">
+        <h3>🛡️ Security / PII</h3>
+        <span class="pill">Guardrails layer</span><span class="pill">Prompt-injection defense</span>
+        <span class="pill">PII detect + redact</span><span class="pill">OWASP-LLM aligned</span>
+        <span class="pill">env-tunable · fail-open</span>
+      </div>
+      <div class="card">
+        <h3>⚡ Performance</h3>
+        <span class="pill">Semantic response cache</span><span class="pill">LRU + TTL</span>
+        <span class="pill">Connection pool</span><span class="pill">embedding / client reuse</span>
       </div>
       <div class="card">
         <h3>🧾 Doc Processing</h3>
@@ -688,7 +865,7 @@
 
   <!-- Runtime topology -->
   <section>
-    <h2><span class="num">08</span>Runtime Topology</h2>
+    <h2><span class="num">10</span>Runtime Topology</h2>
     <p class="lede">Everything runs locally as three cooperating processes, wired together by <code>.env</code>.</p>
     <div class="infra">
       <div class="node">
@@ -696,12 +873,15 @@
         <div class="row"><span>UI server</span><span>Streamlit @ localhost:8516</span></div>
         <div class="row"><span>Chat model</span><span>Ollama @ :11434 (router: 1b ⇄ 3b)</span></div>
         <div class="row"><span>Embeddings</span><span>mxbai-embed-large (1024-dim)</span></div>
+        <div class="row"><span>Guardrails</span><span>input · context · output · logs</span></div>
+        <div class="row"><span>Response cache</span><span>in-process · LRU + TTL</span></div>
         <div class="row"><span>Runtime</span><span>Python 3.11 · local .venv</span></div>
         <div class="row"><span>Cloud</span><span>none — fully offline</span></div>
       </div>
       <div class="node">
         <h4>🗄️ Data &amp; configuration</h4>
         <div class="row"><span>Database</span><span>Postgres + pgvector @ :5432</span></div>
+        <div class="row"><span>Connections</span><span>psycopg-pool (warm, reused)</span></div>
         <div class="row"><span>Tables</span><span>documents · document_chunks</span></div>
         <div class="row"><span>Indexes</span><span>HNSW (cosine) · GIN (tsvector)</span></div>
         <div class="row"><span>Ingest</span><span>DOCUMENTS_DIR folder scan</span></div>
@@ -715,7 +895,7 @@
 
   <!-- Use cases -->
   <section>
-    <h2><span class="num">09</span>Key Use Cases</h2>
+    <h2><span class="num">11</span>Key Use Cases</h2>
     <table>
       <thead>
         <tr><th>Use case</th><th>Input</th><th>Analysis</th><th>Output</th></tr>
@@ -732,7 +912,7 @@
 
   <!-- Quick reference -->
   <section class="qr">
-    <h2><span class="num">10</span>Quick Reference — Strategy Cheat-Sheet</h2>
+    <h2><span class="num">12</span>Quick Reference — Strategy Cheat-Sheet</h2>
     <p class="lede">
       The landscape of RAG &amp; agent techniques at a glance, with what this platform actually does called out.
       Use the legend to tell a default-on choice from an opt-in toggle from a technique not (yet) wired in.
@@ -814,14 +994,50 @@
         <tr><td><b>Env override</b></td><td><code>ROUTER_FAST_MODEL</code> / <code>ROUTER_STRONG_MODEL</code> fallback when no policy file</td><td><span class="st opt">○ OPT-IN</span></td></tr>
       </tbody>
     </table>
+
+    <!-- Guardrails & PII -->
+    <h4>🛡️ Guardrails &amp; PII strategies</h4>
+    <table>
+      <thead><tr><th>Strategy</th><th>What it is</th><th>Here</th></tr></thead>
+      <tbody>
+        <tr><td><b>Input validation</b></td><td>Reject over-long input; cheap unbounded-consumption guard</td><td><span class="st use">✓ USED</span> <code>GUARDRAILS_MAX_INPUT_CHARS</code></td></tr>
+        <tr><td><b>Direct injection scan</b></td><td>Heuristics for instruction-override / jailbreak / prompt-exfil</td><td><span class="st use">✓ USED</span> flag (or <code>block</code>)</td></tr>
+        <tr><td><b>Indirect injection defense</b></td><td>Defang instruction-like lines smuggled in retrieved documents</td><td><span class="st use">✓ USED</span> context scan</td></tr>
+        <tr><td><b>Output PII redaction</b></td><td>Mask PII in the answer before display / storage / trace</td><td><span class="st use">✓ USED</span> default on</td></tr>
+        <tr><td><b>Streaming PII redaction</b></td><td>Mask PII in the live token stream (buffered hold-back), not just the final answer</td><td><span class="st use">✓ USED</span> <code>GUARDRAILS_STREAM_HOLD_CHARS</code></td></tr>
+        <tr><td><b>Prompt-bound redaction</b></td><td>Scrub PII from query + history before any model call → nothing raw reaches the LLM or a trace</td><td><span class="st use">✓ USED</span> <code>GUARDRAILS_PII_REDACT_PROMPTS</code></td></tr>
+        <tr><td><b>Context PII masking</b></td><td>Mask PII in retrieved chunks before the analyst prompt</td><td><span class="st use">✓ USED</span> <code>GUARDRAILS_PII_SCAN_CONTEXT</code></td></tr>
+        <tr><td><b>PII-safe logging</b></td><td>Scrub queries/chunks bound for stdout &amp; traces</td><td><span class="st use">✓ USED</span></td></tr>
+        <tr><td><b>Redact-on-ingest</b></td><td>Strip PII before it's embedded into pgvector (data-at-rest)</td><td><span class="st opt">○ OPT-IN</span> <code>GUARDRAILS_PII_REDACT_ON_INGEST</code></td></tr>
+        <tr><td><b>Validated detectors</b></td><td>Luhn (card), mod-97 (IBAN), ABA checksum, SSN area rules, context-gating</td><td><span class="st use">✓ USED</span></td></tr>
+        <tr><td><b>Named-entity (NER) PII</b></td><td>ML model to catch names/addresses beyond regex</td><td><span class="st no">– N/A</span></td></tr>
+      </tbody>
+    </table>
+
+    <!-- Performance -->
+    <h4>⚡ Caching &amp; performance strategies</h4>
+    <table>
+      <thead><tr><th>Strategy</th><th>What it is</th><th>Here</th></tr></thead>
+      <tbody>
+        <tr><td><b>Exact response cache</b></td><td>Return a stored answer for an identical (normalized) question — no LLM call</td><td><span class="st use">✓ USED</span> O(1)</td></tr>
+        <tr><td><b>Semantic response cache</b></td><td>Return a prior answer when query-embedding cosine ≥ threshold</td><td><span class="st use">✓ USED</span> <code>RESPONSE_CACHE_THRESHOLD</code> 0.97</td></tr>
+        <tr><td><b>LRU eviction + TTL</b></td><td>Bound cache size; optionally expire stale entries</td><td><span class="st use">✓ USED</span> <code>RESPONSE_CACHE_MAX</code> / <code>_TTL</code></td></tr>
+        <tr><td><b>Cache invalidation</b></td><td>Namespace by model + corpus size; clear on re-ingest</td><td><span class="st use">✓ USED</span></td></tr>
+        <tr><td><b>DB connection pool</b></td><td>Reuse warm pgvector connections instead of per-query connect</td><td><span class="st use">✓ USED</span> psycopg-pool</td></tr>
+        <tr><td><b>Client / embedder reuse</b></td><td><code>@lru_cache</code> on embedder + per-model analyst clients</td><td><span class="st use">✓ USED</span></td></tr>
+        <tr><td><b>Embedding-value cache</b></td><td>Persist per-text embedding vectors to skip re-embedding identical text</td><td><span class="st no">– N/A</span></td></tr>
+      </tbody>
+    </table>
+
     <p class="note">Status reflects the code as of this revision — toggles live in <code>.env</code>
-      (<code>RETRIEVAL_*</code>, <code>MODEL_ROUTER_ENABLED</code>, <code>ROUTER_*</code>). Each row maps to a
+      (<code>RETRIEVAL_*</code>, <code>MODEL_ROUTER_ENABLED</code>, <code>ROUTER_*</code>,
+      <code>GUARDRAILS_*</code>, <code>RESPONSE_CACHE_*</code>, <code>DB_POOL_*</code>). Each row maps to a
       <a href="strategies/index.html">deep-dive page</a> where applicable.</p>
   </section>
 
   <footer>
     🏦 Financial Agentic Platform &nbsp;·&nbsp; Multi-agent LangGraph workflow on a local Ollama LLM &nbsp;·&nbsp; Built with Streamlit
-    <div class="note">Architecture overview — derived from the project source (graph.py, router.py, financial_agent.py, retrieval.py, vector_store.py, storage/, ingestion/, evals/) and the README.</div>
+    <div class="note">Architecture overview — derived from the project source (graph.py, router.py, financial_agent.py, retrieval.py, vector_store.py, guardrails/, semantic_cache.py, storage/, ingestion/, evals/) and the README.</div>
   </footer>
 
 </div>

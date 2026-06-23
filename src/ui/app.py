@@ -345,11 +345,14 @@ def sidebar_search(agent):
             st.warning(f"No matches for “{payload['query']}”.")
         else:
             st.success(f"{len(results)} chunk(s) for “{payload['query']}”")
+            scrub = agent.guardrails.scrub_for_log if agent else (lambda t: t)
             for i, r in enumerate(results, 1):
                 src = r.get("metadata", {}).get("filename", "unknown")
                 score = r.get("relevance_score", 0)
                 with st.expander(f"{i}. {src} · relevance {score:.2f}"):
-                    st.write(r.get("content", "")[:600])
+                    # Mask any PII in the raw chunk preview — this view bypasses
+                    # the analyst output filter.
+                    st.write(scrub(r.get("content", "")[:600]))
 
 
 def create_sidebar():
@@ -386,6 +389,18 @@ def create_sidebar():
                 st.caption("🔭 LangSmith tracing off — enable it in `.env` "
                            "(`LANGSMITH_TRACING=true`).")
 
+            st.divider()
+            if agent and getattr(agent, "cache", None) is not None:
+                stats = agent.cache.stats
+                st.caption(
+                    f"⚡ Response cache · {agent.cache.size()} entries · "
+                    f"{stats.hits} hits / {stats.lookups} lookups "
+                    f"({stats.hit_rate:.0%})"
+                )
+                if st.button("🗑️ Clear response cache", width="stretch"):
+                    agent.cache.clear()
+                    st.success("Response cache cleared.")
+
         with tab_search:
             sidebar_search(agent)
 
@@ -403,42 +418,73 @@ def create_sidebar():
 # Documents
 # ---------------------------------------------------------------------------
 def process_documents(uploaded_files):
-    """Process uploaded documents and save them to the vector database."""
+    """Process uploaded documents and save them to the vector database.
+
+    The work is wrapped in an ``st.status`` container so the user sees a live
+    spinner and a step-by-step log while files are saved and embedded (parsing
+    + embedding a PDF on CPU can take a few seconds each). The status collapses
+    to a ✅ on success or a ⚠️ if any file failed.
+    """
     agent = st.session_state.agent
     vector_store = agent.vector_store if agent else None
     if vector_store is None:
         st.error("Vector store unavailable — check your DATABASE_URL.")
         return
 
-    progress = st.progress(0.0, text="Starting…")
+    total = len(uploaded_files)
+    embedded = errors = 0
 
-    for i, file in enumerate(uploaded_files):
-        progress.progress(i / len(uploaded_files), text=f"Saving {file.name}…")
-        try:
-            saved_path = save_upload(file, folder=agent.documents_dir)
-            progress.progress(i / len(uploaded_files), text=f"Embedding {file.name}…")
-            chunks = ingest_file(vector_store, saved_path)
+    with st.status(f"📥 Processing {total} document(s)…", expanded=True) as status:
+        progress = st.progress(0.0, text="Starting…")
 
-            if not chunks:
-                st.info(f"{file.name} already up-to-date (no new chunks).")
-            else:
-                st.success(f"{file.name} → {chunks} chunk(s) embedded.")
+        for i, file in enumerate(uploaded_files):
+            label = f"{file.name} ({i + 1}/{total})"
+            try:
+                status.update(label=f"🔐 Saving {label}…")
+                progress.progress(i / total, text=f"Saving {file.name}…")
+                saved_path = save_upload(file, folder=agent.documents_dir)
 
-            st.session_state.processed_docs.append({
-                "name": file.name,
-                "size": len(file.getvalue()),
-                "processed_at": datetime.now(),
-                "source_path": saved_path,
-                "indexed": True,
-                "chunks_created": chunks or 0,
-                "content": f"Saved to {saved_path}",
-            })
-        except Exception as e:
-            st.error(f"Error processing {file.name}: {e}")
-            print(f"❌ Error processing {file.name}: {e}")
+                status.update(label=f"🧠 Embedding {label}…")
+                progress.progress((i + 0.5) / total,
+                                  text=f"Extracting + embedding {file.name}…")
+                chunks = ingest_file(vector_store, saved_path)
 
-    progress.progress(1.0, text="All uploads processed.")
-    progress.empty()
+                if not chunks:
+                    st.write(f"➖ **{file.name}** already up-to-date (no new chunks).")
+                else:
+                    embedded += 1
+                    st.write(f"✅ **{file.name}** → {chunks} chunk(s) embedded.")
+
+                st.session_state.processed_docs.append({
+                    "name": file.name,
+                    "size": len(file.getvalue()),
+                    "processed_at": datetime.now(),
+                    "source_path": saved_path,
+                    "indexed": True,
+                    "chunks_created": chunks or 0,
+                    "content": f"Saved to {saved_path}",
+                })
+            except Exception as e:
+                errors += 1
+                st.write(f"❌ **{file.name}** — {e}")
+                print(f"❌ Error processing {file.name}: {e}")
+
+            progress.progress((i + 1) / total)
+
+        progress.empty()
+        # New documents change retrieval results → invalidate cached answers.
+        if embedded and getattr(agent, "cache", None) is not None:
+            agent.cache.clear()
+
+        if errors:
+            status.update(
+                label=f"⚠️ Processed with {errors} error(s) · "
+                      f"{embedded} embedded of {total}",
+                state="error", expanded=True)
+        else:
+            status.update(
+                label=f"✅ Processed {total} document(s) · {embedded} embedded",
+                state="complete", expanded=False)
 
 
 # ---------------------------------------------------------------------------
@@ -457,6 +503,8 @@ def render_message(msg: dict):
                 bits.append(f"route `{meta['route']}`")
             if meta.get("complexity"):
                 bits.append(f"complexity `{meta['complexity']}`")
+            if meta.get("cached"):
+                bits.append("⚡ cached")
             if meta.get("time"):
                 bits.append(meta["time"])
             trace = meta.get("trace") or []
@@ -506,6 +554,7 @@ def handle_prompt(prompt: str):
                     "model": response.get("analyst_model"),
                     "route": response.get("route"),
                     "complexity": response.get("complexity"),
+                    "cached": response.get("cached", False),
                     "time": datetime.now().strftime("%H:%M:%S"),
                 },
             }
