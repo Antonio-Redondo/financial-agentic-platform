@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Agent Graph (LangGraph) — Financial Agentic Platform</title>
+<link rel="stylesheet" href="strategy.css">
+</head>
+<body>
+
+<div class="crumbs">
+  <a href="../architecture.html">🏦 Architecture</a><span class="sep">›</span>
+  <a href="index.html">Strategies</a><span class="sep">›</span>
+  <span>Agent Graph</span>
+</div>
+
+<header class="hero">
+  <p class="eyebrow">Internals · Orchestration</p>
+  <h1>🕸️ The Agent Graph (LangGraph)</h1>
+  <p class="sub">
+    A lean multi-agent workflow compiled once from a LangGraph <code>StateGraph</code>. Four nodes —
+    planner, retriever, analyst, finalize — pass a shared <code>AgentState</code> dict between them,
+    with the planner deciding both <i>which</i> path the query takes and <i>which</i> model writes the
+    answer. It's tuned for fast local CPU inference.
+  </p>
+  <div class="badges">
+    <span class="badge">src/agents/graph.py</span>
+    <span class="badge">LangGraph StateGraph</span>
+    <span class="badge">planner → retriever → analyst → finalize</span>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <section>
+    <h2><span class="dot"></span>The compiled graph &amp; shared state</h2>
+    <p class="lede">
+      <code>FinancialGraph._build()</code> assembles a <code>StateGraph(AgentState)</code> with four
+      nodes, a single conditional edge after the planner, and a straight run to <code>END</code>. The
+      compiled app is stored once on <code>self.app</code>; nodes are bound methods that read
+      <code>self.*_llm</code> at call time, so swapping models later never requires recompiling.
+    </p>
+    <pre><code><span class="tok-c"># graph.py — _build()</span>
+g = <span class="tok-f">StateGraph</span>(AgentState)
+g.<span class="tok-f">add_node</span>(<span class="tok-s">"planner"</span>, self.planner_node)
+g.<span class="tok-f">add_node</span>(<span class="tok-s">"retrieve"</span>, self.retrieve_node)
+g.<span class="tok-f">add_node</span>(<span class="tok-s">"analyst"</span>, self.analyst_node)
+g.<span class="tok-f">add_node</span>(<span class="tok-s">"finalize"</span>, self.finalize_node)
+
+g.<span class="tok-f">set_entry_point</span>(<span class="tok-s">"planner"</span>)
+g.<span class="tok-f">add_conditional_edges</span>(<span class="tok-s">"planner"</span>, self._after_plan,
+                        {<span class="tok-s">"retrieve"</span>: <span class="tok-s">"retrieve"</span>, <span class="tok-s">"analyst"</span>: <span class="tok-s">"analyst"</span>})
+g.<span class="tok-f">add_edge</span>(<span class="tok-s">"retrieve"</span>, <span class="tok-s">"analyst"</span>)
+g.<span class="tok-f">add_edge</span>(<span class="tok-s">"analyst"</span>, <span class="tok-s">"finalize"</span>)
+g.<span class="tok-f">add_edge</span>(<span class="tok-s">"finalize"</span>, END)
+<span class="tok-k">return</span> g.<span class="tok-f">compile</span>()</code></pre>
+    <p>
+      Everything the nodes share rides on one <code>TypedDict</code>, <code>AgentState</code>
+      (<code>total=False</code>, so every key is optional and nodes return partial updates that LangGraph
+      merges):
+    </p>
+    <pre><code><span class="tok-k">class</span> <span class="tok-f">AgentState</span>(TypedDict, total=<span class="tok-k">False</span>):
+    query: str
+    search_query: str       <span class="tok-c"># query after conversational rewrite (if any)</span>
+    history: List[Dict]     <span class="tok-c"># prior chat turns: [{role, content}, ...]</span>
+    filters: Dict           <span class="tok-c"># optional metadata filters for retrieval</span>
+    route: str              <span class="tok-c"># "document" | "general"</span>
+    complexity: str         <span class="tok-c"># "simple" | "complex" (drives the model router)</span>
+    analyst_model: str      <span class="tok-c"># model chosen to write the answer</span>
+    documents: List[Dict]
+    context: str
+    analysis: str
+    answer: str
+    log: List[str]          <span class="tok-c"># human-readable trace of what each agent did</span></code></pre>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>The four nodes</h2>
+    <p>
+      Each node takes the <code>AgentState</code> and returns only the keys it changed. Every step also
+      appends a human-readable line to <code>log</code> via the <code>_emit()</code> helper, which both
+      prints to stdout and returns the string so it lands in the trace.
+    </p>
+    <table>
+      <thead><tr><th>Node</th><th>What it does</th></tr></thead>
+      <tbody>
+        <tr><td><code>planner_node</code></td><td>Runs the conversational rewrite (when history is present), then one classification call to set <code>route</code> (document/general) and <code>complexity</code> (simple/complex). Applies the <code>_DOCUMENT_HINTS</code> and <code>_COMPLEX_HINTS</code> backstops. Writes <code>route</code>, <code>complexity</code>, <code>search_query</code>.</td></tr>
+        <tr><td><code>retrieve_node</code></td><td>Tool node. Pulls chunks from the <code>VectorStore</code> (optional multi-query/HyDE expansion and LLM rerank), de-duplicates on the first 100 chars, builds the <code>context</code> block, and runs <code>guardrails.sanitize_context()</code> over it. Writes <code>documents</code>, <code>context</code>.</td></tr>
+        <tr><td><code>analyst_node</code></td><td>Picks the model via <code>_route_analyst_model()</code> and writes the answer with <code>_analyst_prompt(state)</code>, grounded in <code>context</code> when present. Writes <code>analysis</code>, <code>analyst_model</code>.</td></tr>
+        <tr><td><code>finalize_node</code></td><td>Output guardrail. Runs <code>guardrails.filter_output()</code> to redact PII the model may have surfaced, then writes the cleaned <code>answer</code>.</td></tr>
+      </tbody>
+    </table>
+    <div class="panel">
+      <h4>🧭 One call, two axes</h4>
+      <p>
+        The planner gets both decisions from a single classifier call: it prompts for "EXACTLY two
+        words" like <code>GENERAL SIMPLE</code> or <code>DOCUMENT COMPLEX</code>, then parses
+        <code>route = "document" if "DOCUMENT" in raw else "general"</code> and
+        <code>complexity = "complex" if "COMPLEX" in raw else "simple"</code>. The planner LLM is built
+        with <code>num_predict=24</code>, <code>temperature=0.0</code> — it only needs two words.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>The pipeline</h2>
+    <div class="flow">
+      <div class="step"><div class="ico">🧭</div><h5>Planner</h5><p>classify route + complexity, rewrite follow-ups</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">🔎</div><h5>Retriever</h5><p>document route only — fetch + sanitize context</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">✍️</div><h5>Analyst</h5><p>routed model writes the answer</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">✅</div><h5>Finalize</h5><p>redact PII, store the final answer</p></div>
+    </div>
+    <p class="note">
+      The retriever is skipped entirely on the <code>general</code> route — the conditional edge sends
+      the planner straight to the analyst.
+    </p>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>Conditional routing &amp; the model router</h2>
+    <p>
+      The only branch in the graph is the conditional edge after the planner, decided by the static
+      helper <code>_after_plan</code>:
+    </p>
+    <pre><code><span class="tok-k">@staticmethod</span>
+<span class="tok-k">def</span> <span class="tok-f">_after_plan</span>(state: AgentState) -> str:
+    <span class="tok-k">return</span> <span class="tok-s">"retrieve"</span> <span class="tok-k">if</span> state.<span class="tok-f">get</span>(<span class="tok-s">"route"</span>) == <span class="tok-s">"document"</span> <span class="tok-k">else</span> <span class="tok-s">"analyst"</span></code></pre>
+    <p>
+      The <code>complexity</code> label is a <i>separate</i> axis: it feeds the model router rather than
+      the graph topology. <code>_route_analyst_model()</code> turns it into the analyst's model — when
+      routing is on, <code>router.pick_model(complexity)</code> chooses fast vs strong; when off, the
+      manual <code>self.model</code> (default <code>OLLAMA_MODEL</code>, <code>llama3.2:1b</code>) is used.
+    </p>
+    <pre><code><span class="tok-k">def</span> <span class="tok-f">_route_analyst_model</span>(self, state: AgentState) -> str:
+    <span class="tok-k">if</span> self.use_router:
+        <span class="tok-k">return</span> router.<span class="tok-f">pick_model</span>(state.<span class="tok-f">get</span>(<span class="tok-s">"complexity"</span>) <span class="tok-k">or</span> <span class="tok-s">"simple"</span>)
+    <span class="tok-k">return</span> self.model</code></pre>
+    <div class="panel tip">
+      <h4>🛟 Backstops over the small planner</h4>
+      <p>
+        Tiny local models route imperfectly, so the planner adds two safety nets after the LLM call:
+        any query matching <code>_DOCUMENT_HINTS</code> (e.g. <code>document</code>, <code>resume</code>,
+        <code>summarize</code>) is forced to the <code>document</code> route <i>when documents are
+        actually indexed</i>; and a <code>simple</code> label is upgraded to <code>complex</code> if the
+        query has more than 30 words or matches <code>_COMPLEX_HINTS</code> (e.g. <code>analyze</code>,
+        <code>compare</code>, <code>forecast</code>).
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>Streaming on the caller's thread</h2>
+    <p>
+      <code>run()</code> is the entry point. With no <code>on_token</code> callback it invokes the
+      compiled LangGraph (<code>self.app.invoke({...})</code>). With a callback it delegates to
+      <code>stream_run()</code>, which re-runs the <i>identical</i> steps by hand — planner →
+      (retrieve) → analyst → finalize — on the caller's thread.
+    </p>
+    <pre><code><span class="tok-f">@traceable</span>(run_type=<span class="tok-s">"chain"</span>, name=<span class="tok-s">"financial_query"</span>)
+<span class="tok-k">def</span> <span class="tok-f">stream_run</span>(self, query, on_token, history=<span class="tok-k">None</span>, filters=<span class="tok-k">None</span>):
+    state.<span class="tok-f">update</span>(self.<span class="tok-f">planner_node</span>(state))
+    <span class="tok-k">if</span> state.<span class="tok-f">get</span>(<span class="tok-s">"route"</span>) == <span class="tok-s">"document"</span>:
+        state.<span class="tok-f">update</span>(self.<span class="tok-f">retrieve_node</span>(state))
+    model = self.<span class="tok-f">_route_analyst_model</span>(state)
+    <span class="tok-f">add_metadata</span>(route=state.<span class="tok-f">get</span>(<span class="tok-s">"route"</span>),
+                 complexity=state.<span class="tok-f">get</span>(<span class="tok-s">"complexity"</span>),
+                 analyst_model=model)
+    stream = self.guardrails.<span class="tok-f">output_stream</span>(on_token)
+    <span class="tok-k">for</span> chunk <span class="tok-k">in</span> self.<span class="tok-f">_analyst_for</span>(model).<span class="tok-f">stream</span>(...):
+        ...
+        stream.<span class="tok-f">feed</span>(tok)</code></pre>
+    <div class="panel warn">
+      <h4>🧵 Why not just stream the compiled graph?</h4>
+      <p>
+        LangGraph executes nodes inside a worker thread pool, but Streamlit can only render from the
+        main thread — calling <code>st.*</code> off-thread raises "missing ScriptRunContext" and
+        silently drops the update. Driving the same steps in <code>stream_run</code> on the caller's
+        thread lets the live token callback reach the UI. The non-streaming <code>run()</code> path
+        still uses the compiled LangGraph.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>How guardrails wrap the run</h2>
+    <p>
+      The graph holds a guardrails instance from <code>get_guardrails()</code> and applies it at three
+      boundaries, so neither retrieved documents nor the model's output can leak injection or PII:
+    </p>
+    <ul class="clean">
+      <li><b>Logged queries.</b> The planner scrubs the query with
+        <code>guardrails.scrub_for_log()</code> before printing/tracing, so server logs never carry raw
+        SSNs, account numbers, etc.</li>
+      <li><b>Retrieved context.</b> <code>retrieve_node</code> runs
+        <code>guardrails.sanitize_context()</code> to neutralize indirect prompt-injection smuggled in
+        via uploaded documents and mask PII before the context reaches the analyst prompt.</li>
+      <li><b>Streamed &amp; stored output.</b> The live stream is wrapped by
+        <code>guardrails.output_stream()</code> so PII is masked in the tokens themselves, and
+        <code>finalize_node</code> calls <code>guardrails.filter_output()</code> to redact the final
+        stored answer.</li>
+    </ul>
+    <p class="note">
+      Routing config knobs read at call time: <code>OLLAMA_MODEL</code> (default
+      <code>llama3.2:1b</code>) for the manual model, plus the retriever's <code>RETRIEVAL_K</code>
+      (6), <code>RETRIEVAL_FETCH_K</code> (20) and <code>RETRIEVAL_MODE</code> (<code>hybrid</code>).
+    </p>
+  </section>
+
+  <div class="pagenav">
+    <a class="prev" href="../architecture.html"><span class="dir">← Back</span><span class="ttl">Full Architecture</span></a>
+    <a class="next" href="index.html"><span class="dir">More →</span><span class="ttl">All strategies</span></a>
+  </div>
+
+  <footer>🏦 Financial Agentic Platform · Agent graph deep dive</footer>
+</div>
+</body>
+</html>

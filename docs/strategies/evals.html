@@ -20,6 +20,10 @@
   .polcard .pick{font-size:1.15rem;font-weight:800;margin:4px 0 2px}
   .polcard.simple{border-top:3px solid var(--violet)}
   .polcard.complex{border-top:3px solid var(--green)}
+  /* Mermaid diagram */
+  .mermaid-wrap{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px;box-shadow:var(--shadow);overflow-x:auto;margin-top:16px}
+  .mermaid{display:flex;justify-content:center;min-height:60px}
+  .mermaid svg{max-width:100%;height:auto}
 </style>
 </head>
 <body>
@@ -73,6 +77,47 @@
       <div class="step"><div class="ico">🗳️</div><h5>Policy</h5><p>per-complexity model pick</p></div>
       <div class="arrow">→</div>
       <div class="step" style="border-color:var(--orange)"><div class="ico">💾</div><h5>Write</h5><p>policy.json · summary.md · results_&lt;ts&gt;.json</p></div>
+    </div>
+
+    <div class="mermaid-wrap">
+      <pre class="mermaid">
+flowchart LR
+    DS["📋 dataset.py<br/>20 financial Qs + key points<br/>simple · complex"]
+
+    subgraph Models["🤖 Each model answers"]
+        M1["llama3.2:1b<br/>(fast)"]
+        M2["qwen2.5:3b<br/>(strong)"]
+    end
+
+    subgraph Grade["⚖️ Score every answer"]
+        Cov["Key-point<br/>coverage"]
+        Judge["LLM-as-judge<br/>1–5"]
+        Lat["Latency<br/>p50 / p95"]
+    end
+
+    Policy[/"🗳️ policy.json<br/>per-complexity model pick"/]
+    Router["🔀 Router<br/>(in the app)"]
+
+    DS --> M1 &amp; M2
+    M1 --> Cov &amp; Judge &amp; Lat
+    M2 --> Cov &amp; Judge &amp; Lat
+    Cov --> Policy
+    Judge --> Policy
+    Lat --> Policy
+    Policy -->|"fast unless Δjudge &gt; tolerance"| Router
+
+    classDef data fill:#3b82f6,stroke:#1d4ed8,color:#fff
+    classDef model fill:#f59e0b,stroke:#b45309,color:#3a2400
+    classDef grade fill:#10b981,stroke:#047857,color:#04241a
+    classDef policy fill:#fbbf24,stroke:#b45309,color:#3a2400
+    classDef router fill:#8b5cf6,stroke:#6d28d9,color:#fff
+
+    class DS data
+    class M1,M2 model
+    class Cov,Judge,Lat grade
+    class Policy policy
+    class Router router
+      </pre>
     </div>
   </section>
 
@@ -300,5 +345,23 @@ python -m evals.run_evals \
 
   <footer>🏦 Financial Agentic Platform · Evals deep dive · numbers from evals/results/results_20260618-091902.json</footer>
 </div>
+
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: "base",
+    securityLevel: "loose",
+    themeVariables: {
+      darkMode: true,
+      fontFamily: '"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif',
+      lineColor: "#9fb0cc",
+      clusterBkg: "#0d1729",
+      clusterBorder: "#2b3d5c",
+      titleColor: "#cdd9ee",
+      edgeLabelBackground: "#0d1729"
+    }
+  });
+</script>
 </body>
 </html>

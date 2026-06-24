@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Financial Agent (Entry Point) — Financial Agentic Platform</title>
+<link rel="stylesheet" href="strategy.css">
+</head>
+<body>
+
+<div class="crumbs">
+  <a href="../architecture.html">🏦 Architecture</a><span class="sep">›</span>
+  <a href="index.html">Strategies</a><span class="sep">›</span>
+  <span>Financial Agent</span>
+</div>
+
+<header class="hero">
+  <p class="eyebrow">Internals · Entry point</p>
+  <h1>🧭 Financial Agent</h1>
+  <p class="sub">
+    <code>FinancialAgent</code> is the single object the Streamlit UI talks to. It wires together the
+    multi-agent graph, the guardrails, the semantic cache and the vector store, then exposes a small,
+    stable interface — <code>process_query()</code>, <code>set_model()</code>, <code>set_router()</code>
+    and a few stats helpers — while all the actual reasoning happens behind it.
+  </p>
+  <div class="badges">
+    <span class="badge">src/agents/financial_agent.py</span>
+    <span class="badge">runs the graph</span>
+    <span class="badge">answer + trace + route + model</span>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <section>
+    <h2><span class="dot"></span>What the entry point does</h2>
+    <p class="lede">
+      <code>FinancialAgent</code> is a thin façade. Its job is to keep one steady public interface for the
+      UI while delegating the real work to a planner → retriever → analyst graph, and to apply the
+      cross-cutting concerns (guardrails, PII redaction, caching) that wrap every query.
+    </p>
+    <p>
+      On construction it builds the four collaborators, then does two startup chores before serving any
+      query: it <b>ingests the drop folder</b> and <b>warms up the model</b>.
+    </p>
+    <pre><code><span class="tok-k">class</span> <span class="tok-f">FinancialAgent</span>:
+    <span class="tok-k">def</span> <span class="tok-f">__init__</span>(self):
+        self.vector_store = <span class="tok-f">VectorStore</span>()
+        self.graph = <span class="tok-f">FinancialGraph</span>(self.vector_store)
+        self.guardrails = <span class="tok-f">get_guardrails</span>()
+        self.cache = semantic_cache.<span class="tok-f">get_cache</span>()
+        <span class="tok-c"># Ingest anything in the drop folder before serving queries.</span>
+        <span class="tok-k">try</span>:
+            self.last_ingestion = <span class="tok-f">ingest_folder</span>(self.vector_store)
+        <span class="tok-k">except</span> Exception <span class="tok-k">as</span> e:   <span class="tok-c"># never block startup on ingest</span>
+            <span class="tok-f">print</span>(<span class="tok-s">f"⚠️  Startup ingestion skipped: {e}"</span>, flush=<span class="tok-k">True</span>)
+            self.last_ingestion = <span class="tok-k">None</span>
+        <span class="tok-c"># Preload the model so the first query skips cold-start cost.</span>
+        self.graph.<span class="tok-f">warmup</span>()</code></pre>
+    <p class="note">
+      Module import calls <code>load_dotenv()</code>, so the <code>.env</code> configuration is in place
+      before any collaborator is constructed.
+    </p>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>The public API</h2>
+    <p>
+      Everything the UI needs is a method or property on this one class. The two properties below are
+      read-only views onto the graph's current state; the setters mutate it in place and re-warm.
+    </p>
+    <table>
+      <thead><tr><th>Member</th><th>Kind</th><th>Role</th></tr></thead>
+      <tbody>
+        <tr><td><code>process_query(query, on_token=None, history=None, filters=None)</code></td><td>method</td><td>The main path. Runs guardrails → PII redaction → cache → graph and returns the response dict.</td></tr>
+        <tr><td><code>suggest_questions(history=None, n=4)</code></td><td>method</td><td>Proposes <code>n</code> follow-up questions grounded in the indexed docs and the user's recent questions. Best-effort — returns <code>[]</code> on error.</td></tr>
+        <tr><td><code>set_model(model)</code></td><td>method</td><td>Switches the active Ollama model in place (documents preserved), then warms it up.</td></tr>
+        <tr><td><code>set_router(enabled)</code></td><td>method</td><td>Toggles automatic model routing, then warms up the planner.</td></tr>
+        <tr><td><code>rescan_documents()</code></td><td>method</td><td>Re-runs folder ingestion (the sidebar's manual trigger) and clears the response cache.</td></tr>
+        <tr><td><code>get_document_stats()</code></td><td>method</td><td>Returns <code>total_chunks</code>, <code>unique_documents</code> and <code>storage_type</code> (<code>"pgvector"</code>).</td></tr>
+        <tr><td><code>model</code></td><td>property</td><td>The Ollama model currently in use (manual mode / routing off).</td></tr>
+        <tr><td><code>use_router</code></td><td>property</td><td>Whether automatic model routing is enabled.</td></tr>
+        <tr><td><code>documents_dir</code></td><td>property</td><td>The drop-folder path (from <code>documents_dir()</code>).</td></tr>
+        <tr><td><code>vector_store</code></td><td>attr</td><td>The <code>VectorStore</code> the UI reads directly for some stats.</td></tr>
+      </tbody>
+    </table>
+    <div class="panel tip">
+      <h4>♻️ Switch model, keep documents</h4>
+      <p>
+        <code>set_model()</code> and <code>set_router()</code> only touch the graph and then call
+        <code>warmup()</code> — the indexed corpus in pgvector is untouched, so changing model mid-session
+        doesn't re-ingest anything.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>The return shape</h2>
+    <p>
+      <code>process_query()</code> always returns a <code>Dict</code>, but the keys differ by path. The
+      success path carries the answer plus the trace, route and model that produced it:
+    </p>
+    <pre><code>response = {
+    <span class="tok-s">"output"</span>: answer,                          <span class="tok-c"># answer | analysis | "No analysis available."</span>
+    <span class="tok-s">"trace"</span>: result.<span class="tok-f">get</span>(<span class="tok-s">"log"</span>, []),         <span class="tok-c"># step-by-step log</span>
+    <span class="tok-s">"route"</span>: result.<span class="tok-f">get</span>(<span class="tok-s">"route"</span>),
+    <span class="tok-s">"complexity"</span>: result.<span class="tok-f">get</span>(<span class="tok-s">"complexity"</span>),
+    <span class="tok-s">"analyst_model"</span>: result.<span class="tok-f">get</span>(<span class="tok-s">"analyst_model"</span>),
+    <span class="tok-s">"search_query"</span>: result.<span class="tok-f">get</span>(<span class="tok-s">"search_query"</span>),
+    <span class="tok-s">"cached"</span>: <span class="tok-k">False</span>,
+}</code></pre>
+    <ul class="clean">
+      <li><b>Blocked path.</b> If the input guardrail rejects the query, it returns early with
+        <code>output</code> (the refusal reason), <code>trace</code> and <code>"blocked": True</code>.</li>
+      <li><b>Cache hit.</b> Returns the stored response with a <code>⚡ Served from semantic cache</code>
+        line prepended to <code>trace</code> (the cached dict already carries <code>cached: ...</code>).</li>
+      <li><b>Error path.</b> Any exception from the graph is swallowed into a friendly
+        <code>output</code> message plus an empty <code>trace</code> — the UI never sees a stack trace.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>How a query flows</h2>
+    <p>
+      The body of <code>process_query()</code> is an ordered pipeline. Each stage can short-circuit, so
+      the graph only runs when the query is allowed, not cached, and (for caching) standalone.
+    </p>
+    <div class="flow">
+      <div class="step"><div class="ico">🛡️</div><h5>Input guardrail</h5><p>reject over-long / jailbreak input before any model runs</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">🙈</div><h5>PII redact</h5><p>scrub query + history before model, embedder, cache</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">⚡</div><h5>Cache</h5><p>standalone questions only — return on hit</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">🧠</div><h5>Graph</h5><p>planner → retriever → analyst, then cache the result</p></div>
+    </div>
+    <pre><code>decision = self.guardrails.<span class="tok-f">check_input</span>(query)
+<span class="tok-k">if</span> <span class="tok-k">not</span> decision.allowed:
+    <span class="tok-k">return</span> {<span class="tok-s">"output"</span>: decision.reason, <span class="tok-s">"trace"</span>: [...], <span class="tok-s">"blocked"</span>: <span class="tok-k">True</span>}
+
+query = self.guardrails.<span class="tok-f">redact_for_prompt</span>(query)   <span class="tok-c"># default-on PII scrub</span>
+history = self.<span class="tok-f">_redact_history</span>(history)
+
+cacheable = <span class="tok-k">not</span> history <span class="tok-k">and</span> <span class="tok-k">not</span> filters       <span class="tok-c"># follow-ups / filters bypass cache</span>
+namespace = self.<span class="tok-f">_cache_namespace</span>()
+<span class="tok-k">if</span> cacheable:
+    hit = self.cache.<span class="tok-f">get</span>(query, namespace)
+    <span class="tok-k">if</span> hit <span class="tok-k">is</span> <span class="tok-k">not</span> <span class="tok-k">None</span>:
+        ...                                       <span class="tok-c"># paint + return cache hit</span>
+
+result = self.graph.<span class="tok-f">run</span>(query, on_token=on_token, history=history, filters=filters)</code></pre>
+    <p>
+      The cache <b>namespace</b> is built by <code>_cache_namespace()</code> from the model (or
+      <code>"router"</code>) plus the live <code>chunk_count()</code> — so cached answers self-invalidate when
+      the model changes or the corpus grows/shrinks.
+    </p>
+    <div class="panel warn">
+      <h4>⚠️ Cache scope is deliberate</h4>
+      <p>
+        Only standalone questions are cached: a follow-up is rewritten using the conversation, and
+        <code>filters</code> change retrieval, so the query text alone wouldn't identify the same answer.
+        That's why <code>cacheable = not history and not filters</code>.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>Startup ingestion &amp; warmup</h2>
+    <ul class="clean">
+      <li><b>Folder ingestion.</b> <code>__init__</code> calls <code>ingest_folder(self.vector_store)</code>
+        over <code>DOCUMENTS_DIR</code> (default <code>./data/documents</code>), so dropping a file in and
+        restarting is enough to index it. The call is wrapped in <code>try/except</code> — a failed ingest
+        prints a warning and sets <code>last_ingestion = None</code> rather than blocking startup.</li>
+      <li><b>Model warmup.</b> <code>self.graph.warmup()</code> preloads the model so the first real query
+        doesn't pay the cold-start cost. It's re-run after every <code>set_model()</code> /
+        <code>set_router()</code>.</li>
+      <li><b>Manual rescan.</b> <code>rescan_documents()</code> re-ingests on demand and then calls
+        <code>self.cache.clear()</code>, because new or changed chunks can change answers.</li>
+    </ul>
+    <div class="panel tip">
+      <h4>📥 Drop-and-restart workflow</h4>
+      <p>
+        Because ingestion runs on construction, the supported flow is: copy documents into the drop folder,
+        restart the app. For an in-session refresh, use the sidebar trigger that calls
+        <code>rescan_documents()</code>.
+      </p>
+    </div>
+  </section>
+
+  <div class="pagenav">
+    <a class="prev" href="../architecture.html"><span class="dir">← Back</span><span class="ttl">Full Architecture</span></a>
+    <a class="next" href="index.html"><span class="dir">More →</span><span class="ttl">All strategies</span></a>
+  </div>
+
+  <footer>🏦 Financial Agentic Platform · Financial agent deep dive</footer>
+</div>
+</body>
+</html>

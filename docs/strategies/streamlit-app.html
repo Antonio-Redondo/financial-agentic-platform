@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Streamlit App (UI) — Financial Agentic Platform</title>
+<link rel="stylesheet" href="strategy.css">
+</head>
+<body>
+
+<div class="crumbs">
+  <a href="../architecture.html">🏦 Architecture</a><span class="sep">›</span>
+  <a href="index.html">Strategies</a><span class="sep">›</span>
+  <span>Streamlit App</span>
+</div>
+
+<header class="hero">
+  <p class="eyebrow">Internals · UI</p>
+  <h1>🎨 Streamlit App</h1>
+  <p class="sub">
+    The whole front end is one file: a chat UI that streams the agent's answer token-by-token,
+    a tabbed sidebar for documents / model / search, and a live metrics strip. It talks to a single
+    <code>FinancialAgent</code> held in <code>st.session_state</code>, so model switches and uploads
+    survive Streamlit's rerun-on-every-interaction model without losing your documents.
+  </p>
+  <div class="badges">
+    <span class="badge">src/ui/app.py</span>
+    <span class="badge">streamed answers</span>
+    <span class="badge">model + routing controls</span>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <section>
+    <h2><span class="dot"></span>The chat interface &amp; token streaming</h2>
+    <p class="lede">
+      <code>handle_prompt(prompt)</code> is the heart of the UI. It appends the user turn, then opens an
+      assistant <code>st.chat_message</code> with an empty <code>st.empty()</code> placeholder that gets
+      rewritten on every token.
+    </p>
+    <p>
+      Streaming is driven by an <code>on_token</code> closure passed into the agent. Each token is
+      appended to a mutable <code>streamed["text"]</code> dict and the placeholder is redrawn with a
+      trailing <code>▌</code> cursor; once the call returns, the placeholder is replaced with the final
+      <code>answer</code>.
+    </p>
+    <pre><code><span class="tok-c"># app.py — handle_prompt(): the streaming callback path</span>
+placeholder = st.<span class="tok-f">empty</span>()
+streamed = {<span class="tok-s">"text"</span>: <span class="tok-s">""</span>}
+
+<span class="tok-k">def</span> <span class="tok-f">on_token</span>(tok):
+    streamed[<span class="tok-s">"text"</span>] += tok
+    placeholder.<span class="tok-f">markdown</span>(streamed[<span class="tok-s">"text"</span>] + <span class="tok-s">" ▌"</span>)   <span class="tok-c"># live cursor</span>
+
+history = st.session_state.messages[:-<span class="tok-s">1</span>]              <span class="tok-c"># prior turns for follow-up rewrite</span>
+<span class="tok-k">with</span> st.<span class="tok-f">spinner</span>(<span class="tok-s">"🧭 Analyzing your question…"</span>):
+    response = st.session_state.agent.<span class="tok-f">process_query</span>(
+        prompt, on_token=on_token, history=history)
+answer = response.<span class="tok-f">get</span>(<span class="tok-s">"output"</span>, <span class="tok-s">"No response generated"</span>)
+placeholder.<span class="tok-f">markdown</span>(answer)</code></pre>
+    <p class="note">
+      The prior turns (<code>messages[:-1]</code>, i.e. excluding the just-appended question) are handed to
+      the agent as <code>history</code> so the conversational rewrite can resolve follow-up phrasing.
+      Any structured <code>response["data"]</code> is rendered afterwards by
+      <code>create_data_visualization()</code> as a line chart / table.
+    </p>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>Rendering a turn: trace, footer &amp; ⚡ cached chips</h2>
+    <p>
+      Every assistant turn stores a <code>meta</code> dict, and <code>render_message(msg)</code> turns it
+      into a footer line inside a <code>🧠 Reasoning trace</code> expander. The footer is assembled from
+      whichever fields the agent returned:
+    </p>
+    <table>
+      <thead><tr><th>meta field</th><th>Rendered as</th></tr></thead>
+      <tbody>
+        <tr><td><code>model</code></td><td>model <code>`…`</code> — the <code>analyst_model</code> that wrote the answer</td></tr>
+        <tr><td><code>route</code></td><td>route <code>`…`</code> chip</td></tr>
+        <tr><td><code>complexity</code></td><td>complexity <code>`…`</code> chip (SIMPLE / COMPLEX)</td></tr>
+        <tr><td><code>cached</code></td><td><code>⚡ cached</code> chip when the answer came from the response cache</td></tr>
+        <tr><td><code>time</code></td><td>the <code>HH:MM:SS</code> timestamp of the turn</td></tr>
+        <tr><td><code>trace</code></td><td>numbered list of reasoning steps; expander label shows the step count</td></tr>
+      </tbody>
+    </table>
+    <pre><code><span class="tok-c"># app.py — render_message(): the footer chips + trace expander</span>
+<span class="tok-k">if</span> meta.<span class="tok-f">get</span>(<span class="tok-s">"cached"</span>):
+    bits.<span class="tok-f">append</span>(<span class="tok-s">"⚡ cached"</span>)
+...
+label = <span class="tok-s">"🧠 Reasoning trace"</span> + (<span class="tok-f">f</span><span class="tok-s">" · {len(trace)} steps"</span> <span class="tok-k">if</span> trace <span class="tok-k">else</span> <span class="tok-s">""</span>)
+<span class="tok-k">with</span> st.<span class="tok-f">expander</span>(label):
+    <span class="tok-k">if</span> bits: st.<span class="tok-f">caption</span>(<span class="tok-s">" · "</span>.<span class="tok-f">join</span>(bits))</code></pre>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>↑/↓ history recall in the chat box</h2>
+    <p>
+      Streamlit's <code>st.chat_input</code> has no built-in history, so
+      <code>inject_history_navigation()</code> injects a small client-side script via
+      <code>components.html(...)</code>. It collects the user's previously sent questions, serialises them
+      with <code>json.dumps(history)</code>, and binds a <code>keydown</code> listener to the chat textarea.
+    </p>
+    <ul class="clean">
+      <li><b>ArrowUp</b> (only when the cursor is at the start of the box) walks back through prior questions.</li>
+      <li><b>ArrowDown</b> (only at the end of the box) walks forward; going past the newest entry clears the box.</li>
+      <li>The script reaches into <code>window.parent.document</code> to find <code>[data-testid="stChatInput"] textarea</code>,
+        and retries on a 100&nbsp;ms timer (up to 40 tries) until the element exists.</li>
+    </ul>
+    <div class="panel">
+      <h4>🪟 Why an injected script</h4>
+      <p>
+        The component is rendered with <code>height=0</code> — it draws nothing, it only attaches keyboard
+        behaviour. Index state is kept on <code>window.__chatHistIdx</code> so it persists across reruns,
+        and is reset whenever the history length changes.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>The sidebar control panel</h2>
+    <p>
+      <code>create_sidebar()</code> builds a <code>🏦 Control Panel</code> with three tabs —
+      <code>📁 Documents</code>, <code>⚙️ Model</code>, <code>🔍 Search</code> — plus a global
+      <code>🧹 Clear conversation</code> button at the bottom.
+    </p>
+    <div class="kv">
+      <div>Auto model routing</div><div><code>st.toggle</code> wired to <code>agent.set_router(...)</code>; on, the planner labels each query SIMPLE/COMPLEX and the router picks <code>fast_model()</code> ⇄ <code>strong_model()</code></div>
+      <div>Model</div><div><code>st.selectbox</code> of pulled Ollama models from <code>get_available_models()</code>; selecting one calls <code>agent.set_model(...)</code> and syncs <code>OLLAMA_MODEL</code> — documents are kept</div>
+      <div>Analysis focus</div><div><code>st.selectbox</code> framing hint (Comprehensive / Prepayment Focus / Risk Assessment / Market Analysis)</div>
+      <div>Confidence threshold</div><div><code>st.slider</code> 0.5–1.0, default <code>0.8</code>, step 0.05</div>
+      <div>🔭 LangSmith</div><div>caption shows on/off from <code>observability.tracing_enabled()</code> + the <code>LANGSMITH_PROJECT</code></div>
+      <div>⚡ Response cache</div><div><code>agent.cache.size()</code> entries + <code>hits / lookups (hit_rate)</code>, with a <code>🗑️ Clear response cache</code> button calling <code>agent.cache.clear()</code></div>
+    </div>
+    <pre><code><span class="tok-c"># app.py — model_selector(): toggle drives router rebuild</span>
+new_routing = st.<span class="tok-f">toggle</span>(<span class="tok-s">"Auto model routing"</span>, value=routing_on, ...)
+<span class="tok-k">if</span> agent <span class="tok-k">and</span> new_routing != routing_on:
+    <span class="tok-k">with</span> st.<span class="tok-f">spinner</span>(<span class="tok-s">"Updating routing…"</span>):
+        agent.<span class="tok-f">set_router</span>(new_routing)
+    st.<span class="tok-f">rerun</span>()</code></pre>
+    <p class="note">
+      The <code>📁 Documents</code> tab also offers a <code>🔄 Re-scan drop folder</code> button
+      (<code>agent.rescan_documents()</code>) and an <code>st.file_uploader</code> over
+      <code>SUPPORTED_TYPES</code>. The <code>🔍 Search</code> tab uses
+      <code>agent.vector_store.search_documents(query, k=5)</code> and masks PII in previews with
+      <code>agent.guardrails.scrub_for_log</code>.
+    </p>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>The metrics dashboard</h2>
+    <p>
+      <code>render_metrics()</code> draws a four-column KPI strip in bordered containers. The key detail is
+      <em>when</em> it runs: <code>main()</code> reserves the slot with <code>metrics_placeholder = st.empty()</code>
+      before the sidebar/chat, then fills it <b>after</b> they have executed — so the counts reflect a
+      just-processed document or new message from <em>this</em> run.
+    </p>
+    <table>
+      <thead><tr><th>Metric</th><th>Source</th></tr></thead>
+      <tbody>
+        <tr><td>📁 Documents</td><td><code>len(session_state["processed_docs"])</code></td></tr>
+        <tr><td>🤖 Model</td><td><code>Auto-route</code> (<code>fast_model()</code> ⇄ <code>strong_model()</code>) when routing, else <code>agent.model</code> / <code>OLLAMA_MODEL</code></td></tr>
+        <tr><td>💬 Messages</td><td><code>len(session_state["messages"])</code></td></tr>
+        <tr><td>🧩 Indexed chunks</td><td><code>agent.get_document_stats()["total_chunks"]</code> + <code>unique_documents</code></td></tr>
+      </tbody>
+    </table>
+    <p class="note">
+      The header pill (<code>create_header()</code>) mirrors agent state: <code>⚠️ Agent offline</code>,
+      <code>🟢 Auto-routing on</code>, or <code>🟢 {agent.model}</code>.
+    </p>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>Startup &amp; the rerun loop</h2>
+    <p>
+      At import time the app makes <code>stdout</code>/<code>stderr</code> UTF-8 (so emoji log lines don't crash
+      Windows consoles), adds the project root to <code>sys.path</code>, runs <code>load_dotenv()</code> and
+      then <code>observability.configure()</code> to honour the <code>LANGSMITH_*</code> block.
+    </p>
+    <div class="flow">
+      <div class="step"><div class="ico">🎨</div><h5>load_custom_css</h5><p>theme-aware inline styles</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">🤖</div><h5>init_session_state</h5><p>build FinancialAgent once + startup-ingest toast</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">🧭</div><h5>sidebar + chat</h5><p>controls &amp; streamed answers</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">📊</div><h5>render_metrics</h5><p>filled last, into reserved slot</p></div>
+    </div>
+    <p>
+      <code>initialize_session_state()</code> constructs the <code>FinancialAgent()</code> exactly once and
+      stashes it in <code>st.session_state.agent</code>. If <code>agent.last_ingestion</code> reports new or
+      errored files from the startup drop-folder scan, it surfaces an <code>st.toast</code> summary.
+    </p>
+    <div class="panel tip">
+      <h4>🔁 One agent across reruns</h4>
+      <p>
+        Streamlit re-executes the whole script on every interaction. Because the agent (and its vector store,
+        cache and LLM clients) lives in <code>st.session_state</code>, switching model or toggling routing
+        rebuilds only the LLM clients via <code>set_model()</code> / <code>set_router()</code> — your uploaded
+        documents and chat history are preserved.
+      </p>
+    </div>
+    <div class="panel warn">
+      <h4>⚠️ Streaming under the rerun model</h4>
+      <p>
+        Tokens are painted by mutating a single <code>st.empty()</code> placeholder from the
+        <code>on_token</code> callback — there is no background thread in <code>handle_prompt</code>. The call
+        runs inside an <code>st.spinner</code>, and a suggestion-button click is queued via
+        <code>st.session_state.pending_prompt</code> and replayed on the next rerun so it goes through the same
+        path as typed input. After processing, <code>st.rerun()</code> redraws the finished conversation.
+      </p>
+    </div>
+  </section>
+
+  <div class="pagenav">
+    <a class="prev" href="../architecture.html"><span class="dir">← Back</span><span class="ttl">Full Architecture</span></a>
+    <a class="next" href="index.html"><span class="dir">More →</span><span class="ttl">All strategies</span></a>
+  </div>
+
+  <footer>🏦 Financial Agentic Platform · Streamlit app deep dive</footer>
+</div>
+</body>
+</html>

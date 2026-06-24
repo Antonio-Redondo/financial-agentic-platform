@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LLM Factory (ChatOllama) — Financial Agentic Platform</title>
+<link rel="stylesheet" href="strategy.css">
+</head>
+<body>
+
+<div class="crumbs">
+  <a href="../architecture.html">🏦 Architecture</a><span class="sep">›</span>
+  <a href="index.html">Strategies</a><span class="sep">›</span>
+  <span>LLM Factory</span>
+</div>
+
+<header class="hero">
+  <p class="eyebrow">Internals · LLM</p>
+  <h1>🟢 LLM Factory</h1>
+  <p class="sub">
+    A single helper, <code>build_llm()</code>, is the only place the platform constructs a
+    <code>ChatOllama</code> client — so the local model, endpoint and sampling defaults are
+    configured once. Callers pass a per-agent token budget and temperature, keeping a tiny router
+    classifier and a long-form writer on the same factory.
+  </p>
+  <div class="badges">
+    <span class="badge">src/agents/llm.py</span>
+    <span class="badge">single ChatOllama factory</span>
+    <span class="badge">per-agent token budgets</span>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <section>
+    <h2><span class="dot"></span>One place to build a client</h2>
+    <p class="lede">
+      Every agent node in the LangGraph workflow needs an LLM, but none of them talk to
+      <code>langchain_ollama</code> directly. They all go through one function so the Ollama
+      model name, base URL and shared sampling knobs live in exactly one file.
+    </p>
+    <pre><code><span class="tok-c"># src/agents/llm.py — the whole module</span>
+<span class="tok-k">import</span> os
+<span class="tok-k">from</span> langchain_ollama <span class="tok-k">import</span> ChatOllama
+
+<span class="tok-k">def</span> <span class="tok-f">build_llm</span>(num_predict: int = <span class="tok-s">1024</span>, temperature: float = <span class="tok-s">0.7</span>,
+              model: str = None) -> ChatOllama:
+    <span class="tok-k">return</span> <span class="tok-f">ChatOllama</span>(
+        model=model <span class="tok-k">or</span> os.<span class="tok-f">getenv</span>(<span class="tok-s">"OLLAMA_MODEL"</span>, <span class="tok-s">"llama3.2:1b"</span>),
+        base_url=os.<span class="tok-f">getenv</span>(<span class="tok-s">"OLLAMA_BASE_URL"</span>, <span class="tok-s">"http://localhost:11434"</span>),
+        temperature=temperature,
+        top_p=<span class="tok-s">0.9</span>,
+        num_predict=num_predict,
+    )</code></pre>
+    <p class="note">
+      That's the entire file. It is a thin constructor — no caching, no global state — which is why
+      it's safe to call from any node.
+    </p>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>The explicit <code>model</code> argument</h2>
+    <p>
+      <code>build_llm()</code> takes an optional <code>model</code> name. When omitted it falls back to
+      the <code>$OLLAMA_MODEL</code> environment variable (and finally to <code>llama3.2:1b</code>), which
+      is the manual default. Passing an explicit <code>model</code> is what lets the platform run several
+      differently-sized clients side by side — e.g. a small classifier and a larger writer — without each
+      caller re-reading the environment.
+    </p>
+    <div class="panel">
+      <h4>♻️ Where reuse actually happens</h4>
+      <p>
+        <code>build_llm()</code> itself is <b>not</b> memoised — there is no <code>@lru_cache</code> in
+        this file. Client reuse is handled by the caller in <code>graph.py</code>: the default
+        <code>planner_llm</code> / <code>analyst_llm</code> are built once in <code>_build_llms()</code>,
+        and router-selected analyst models are kept in a <code>_analyst_cache</code> dict so each model
+        name is constructed only once.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>Shared defaults vs. per-call settings</h2>
+    <p>
+      Two sampling values are baked into the factory and are the same for every client; two are arguments
+      that each agent sets for itself.
+    </p>
+    <table>
+      <thead><tr><th>Setting</th><th>Source</th><th>Value</th></tr></thead>
+      <tbody>
+        <tr><td><code>top_p</code></td><td>Fixed in <code>build_llm()</code></td><td><code>0.9</code> for all clients</td></tr>
+        <tr><td><code>base_url</code></td><td><code>$OLLAMA_BASE_URL</code></td><td>default <code>http://localhost:11434</code></td></tr>
+        <tr><td><code>model</code></td><td>arg, else <code>$OLLAMA_MODEL</code></td><td>default <code>llama3.2:1b</code></td></tr>
+        <tr><td><code>num_predict</code></td><td>arg (default <code>1024</code>)</td><td>per-agent — see below</td></tr>
+        <tr><td><code>temperature</code></td><td>arg (default <code>0.7</code>)</td><td>per-agent — see below</td></tr>
+      </tbody>
+    </table>
+    <p class="note">
+      <code>num_predict</code> is documented in the factory's docstring as "max tokens to generate (small
+      for routing/critique agents, large for the writing agent)"; <code>temperature</code> as "0.0 for
+      deterministic routing/review".
+    </p>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>Per-agent token budgets &amp; temperatures</h2>
+    <p>
+      The factory only sets the <i>defaults</i> (<code>num_predict=1024</code>, <code>temperature=0.7</code>).
+      The actual per-agent budgets are chosen by the callers in
+      <code>src/agents/graph.py</code>, where each node calls <code>build_llm()</code> with its own values:
+    </p>
+    <table>
+      <thead><tr><th>Agent / use</th><th><code>num_predict</code></th><th><code>temperature</code></th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td>Planner (router classifier)</td><td><code>24</code></td><td><code>0.0</code></td><td>tiny classifier; deterministic routing</td></tr>
+        <tr><td>Analyst (writes the answer)</td><td><code>700</code></td><td><code>0.7</code></td><td>modest cap so one answer can't run away on slow CPU</td></tr>
+        <tr><td>Suggested questions</td><td><code>220</code></td><td><code>0.4</code></td><td>short list output, on the strong model</td></tr>
+      </tbody>
+    </table>
+    <pre><code><span class="tok-c"># src/agents/graph.py — callers pick the budget per node</span>
+self.planner_llm  = <span class="tok-f">build_llm</span>(num_predict=<span class="tok-s">24</span>,  temperature=<span class="tok-s">0.0</span>, model=planner_model)
+self.analyst_llm  = <span class="tok-f">build_llm</span>(num_predict=<span class="tok-s">700</span>, temperature=<span class="tok-s">0.7</span>, model=self.model)
+...
+llm = <span class="tok-f">build_llm</span>(num_predict=<span class="tok-s">220</span>, temperature=<span class="tok-s">0.4</span>, model=model)   <span class="tok-c"># suggestions</span></code></pre>
+    <div class="panel warn">
+      <h4>📍 These values are not in <code>llm.py</code></h4>
+      <p>
+        <code>llm.py</code> defines no agent-specific constants. The numbers above come straight from the
+        <code>build_llm(...)</code> call sites in <code>src/agents/graph.py</code>
+        (<code>_build_llms()</code>, <code>_analyst_for()</code> and the suggestion path). The factory's own
+        defaults of <code>1024</code> / <code>0.7</code> apply only if a caller omits the arguments.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>Base URL &amp; environment knobs</h2>
+    <p>
+      The factory reads exactly two environment variables. Both have sensible local defaults, so the app
+      runs against a stock local Ollama install with no configuration.
+    </p>
+    <div class="kv">
+      <div>OLLAMA_MODEL</div><div>fallback model when <code>build_llm()</code> is called without a <code>model</code> arg — default <code>llama3.2:1b</code></div>
+      <div>OLLAMA_BASE_URL</div><div>Ollama server endpoint — default <code>http://localhost:11434</code></div>
+    </div>
+    <div class="panel tip">
+      <h4>🌐 Pointing at a remote Ollama</h4>
+      <p>
+        To use a model server on another host, set <code>OLLAMA_BASE_URL</code> (e.g. to a LAN address or
+        a container's host). Because every client is built through this one factory, that single variable
+        redirects planner, analyst and suggestion calls alike — no per-agent override needed.
+      </p>
+    </div>
+  </section>
+
+  <div class="pagenav">
+    <a class="prev" href="../architecture.html"><span class="dir">← Back</span><span class="ttl">Full Architecture</span></a>
+    <a class="next" href="index.html"><span class="dir">More →</span><span class="ttl">All strategies</span></a>
+  </div>
+
+  <footer>🏦 Financial Agentic Platform · LLM factory deep dive</footer>
+</div>
+</body>
+</html>
