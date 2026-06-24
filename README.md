@@ -170,6 +170,68 @@ questions about them:
 📽️ PowerPoint  🌐 HTML/XML                      📋 JSON
 ```
 
+## 🏗️ Architecture
+
+```mermaid
+flowchart TB
+    User([👤 User])
+
+    subgraph UI["🖥️ UI — Streamlit"]
+        App["app.py<br/>chat · upload · model & routing controls"]
+    end
+
+    subgraph Agents["🧠 Agentic Graph — LangGraph"]
+        direction TB
+        Planner["🧭 Planner<br/>doc-vs-general · SIMPLE/COMPLEX"]
+        Router["🔀 Model Router<br/>policy.json → fast/strong"]
+        Retriever["🔎 Retriever<br/>hybrid search + RRF"]
+        Analyst["✍️ Analyst<br/>streamed, grounded answer"]
+        Finalize["✅ Finalize"]
+
+        Planner -->|document| Retriever
+        Planner -->|general| Analyst
+        Retriever --> Analyst
+        Analyst --> Finalize
+        Router -.->|selects model| Analyst
+        Planner -.->|complexity| Router
+    end
+
+    subgraph Ingestion["📥 Ingestion"]
+        direction TB
+        Loaders["loaders.py<br/>PDF/DOCX/XLSX/… → text"]
+        Pipeline["pipeline.py<br/>scan · chunk · upsert"]
+        Loaders --> Pipeline
+    end
+
+    subgraph Storage["🗄️ Storage — Postgres + pgvector"]
+        DB[("document_chunks<br/>HNSW cosine + GIN full-text")]
+    end
+
+    subgraph Ollama["🤖 Ollama (local)"]
+        Chat["Chat models<br/>fast + strong"]
+        Embed["Embedding model"]
+    end
+
+    subgraph Evals["⚖️ Evals"]
+        Runner["run_evals.py<br/>coverage · LLM-judge · latency"]
+        Policy["policy.json"]
+        Runner --> Policy
+    end
+
+    User <-->|query / streamed answer| App
+    App --> Planner
+    Finalize --> App
+
+    Retriever -->|top-k| DB
+    Pipeline -->|embeddings| DB
+    Pipeline -. embeds .-> Embed
+    Retriever -. embeds query .-> Embed
+    Planner -. LLM call .-> Chat
+    Analyst -. LLM call .-> Chat
+    Policy -.->|routing data| Router
+    Runner -. scores .-> Chat
+```
+
 ## 🏗️ Project Structure
 
 ```
