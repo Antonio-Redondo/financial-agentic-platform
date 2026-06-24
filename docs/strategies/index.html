@@ -92,6 +92,64 @@
   </section>
 
   <section>
+    <h2><span class="dot"></span>Component internals</h2>
+    <p class="lede">
+      One page per Core Component from the <a href="../architecture.html">architecture</a> — what each
+      module does, tied back to the exact source file that implements it.
+    </p>
+    <div class="hub">
+      <a class="tile" href="agent-graph.html" style="--accent:var(--pink)">
+        <div class="ico">🕸️</div>
+        <h3>Agent Graph</h3>
+        <p>The compiled LangGraph <code>StateGraph</code>: planner → retriever → analyst → finalize, routing &amp; streaming.</p>
+        <div class="meta">src/agents/graph.py</div>
+      </a>
+      <a class="tile" href="financial-agent.html" style="--accent:var(--blue)">
+        <div class="ico">🧭</div>
+        <h3>Financial Agent</h3>
+        <p>The entry point that runs the graph and returns answer + trace + route + model.</p>
+        <div class="meta">src/agents/financial_agent.py</div>
+      </a>
+      <a class="tile" href="storage-embeddings.html" style="--accent:var(--green)">
+        <div class="ico">🗄️</div>
+        <h3>Storage &amp; Embeddings</h3>
+        <p>Postgres + pgvector schema, HNSW/GIN indexes, the psycopg pool, and the Ollama embedder.</p>
+        <div class="meta">src/storage/</div>
+      </a>
+      <a class="tile" href="guardrails.html" style="--accent:var(--green)">
+        <div class="ico">🛡️</div>
+        <h3>Guardrails &amp; PII</h3>
+        <p>Input / context / output boundaries: prompt-injection defense and PII detection + redaction.</p>
+        <div class="meta">src/guardrails/</div>
+      </a>
+      <a class="tile" href="semantic-cache.html" style="--accent:var(--cyan)">
+        <div class="ico">⚡</div>
+        <h3>Semantic Cache</h3>
+        <p>Exact + embedding-similarity response cache with LRU/TTL and correctness gating.</p>
+        <div class="meta">src/agents/semantic_cache.py</div>
+      </a>
+      <a class="tile" href="ingestion.html" style="--accent:var(--amber)">
+        <div class="ico">📥</div>
+        <h3>Ingestion Pipeline</h3>
+        <p>Folder scan → per-format extraction → chunk → embed → upsert, with content-hash dedupe.</p>
+        <div class="meta">src/ingestion/</div>
+      </a>
+      <a class="tile" href="llm-factory.html" style="--accent:var(--green)">
+        <div class="ico">🟢</div>
+        <h3>LLM Factory</h3>
+        <p>The single <code>ChatOllama</code> factory and where per-agent token budgets &amp; temperatures live.</p>
+        <div class="meta">src/agents/llm.py</div>
+      </a>
+      <a class="tile" href="streamlit-app.html" style="--accent:var(--blue)">
+        <div class="ico">🎨</div>
+        <h3>Streamlit App</h3>
+        <p>The chat UI: token streaming, ↑/↓ history recall, sidebar controls, live trace &amp; metrics.</p>
+        <div class="meta">src/ui/app.py</div>
+      </a>
+    </div>
+  </section>
+
+  <section>
     <h2><span class="dot"></span>How the pieces fit</h2>
     <p class="lede">
       A question flows left-to-right. Each stage below has a dedicated page; the defaults are tuned

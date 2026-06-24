@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Storage &amp; Embeddings — Financial Agentic Platform</title>
+<link rel="stylesheet" href="strategy.css">
+</head>
+<body>
+
+<div class="crumbs">
+  <a href="../architecture.html">🏦 Architecture</a><span class="sep">›</span>
+  <a href="index.html">Strategies</a><span class="sep">›</span>
+  <span>Storage &amp; Embeddings</span>
+</div>
+
+<header class="hero">
+  <p class="eyebrow">Internals · Data</p>
+  <h1>🗄️ Storage &amp; Embeddings</h1>
+  <p class="sub">
+    The retrieval layer is plain Postgres with the <code>pgvector</code> extension, driven over raw
+    psycopg3. A process-wide connection pool serves pgvector-ready connections, the schema bootstraps
+    itself on first use, and embeddings come from a local Ollama model — so the whole stack stays
+    self-hosted with no per-call setup cost.
+  </p>
+  <div class="badges">
+    <span class="badge">src/storage/db.py</span>
+    <span class="badge">src/storage/embeddings.py</span>
+    <span class="badge">Postgres · pgvector · psycopg3</span>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <section>
+    <h2><span class="dot"></span>Schema bootstrap</h2>
+    <p class="lede">
+      <code>ensure_schema()</code> creates the <code>vector</code> extension and two tables, then guards
+      against accidentally crossing embedding models. It's safe to call repeatedly — a module-level
+      <code>_SCHEMA_READY</code> flag short-circuits every call after the first in a process.
+    </p>
+    <ul class="clean">
+      <li><b><code>documents</code></b> — one row per source file, keyed by a unique
+        <code>source_path</code>, with <code>filename</code>, <code>content_hash</code>,
+        <code>file_size</code>, <code>file_extension</code>, an <code>uploaded_at</code> timestamp and a
+        <code>metadata</code> JSONB column.</li>
+      <li><b><code>document_chunks</code></b> — the searchable units. Each carries a
+        <code>vector({dim})</code> <code>embedding</code>, the chunk <code>content</code>, a
+        <code>chunk_index</code>, and a <code>document_id</code> foreign key with
+        <code>ON DELETE CASCADE</code> (deleting a document drops its chunks).</li>
+      <li><b><code>content_tsv</code></b> — a generated <code>tsvector</code> column
+        (<code>to_tsvector('english', content)</code>, <code>STORED</code>) added via
+        <code>ADD COLUMN IF NOT EXISTS</code> so it backfills existing tables in place. It powers the
+        keyword leg of the hybrid retriever.</li>
+    </ul>
+    <pre><code><span class="tok-c"># db.py — document_chunks, the searchable unit</span>
+<span class="tok-k">CREATE</span> <span class="tok-k">TABLE</span> <span class="tok-k">IF</span> <span class="tok-k">NOT</span> <span class="tok-k">EXISTS</span> document_chunks (
+    id           BIGSERIAL <span class="tok-k">PRIMARY KEY</span>,
+    document_id  BIGINT <span class="tok-k">NOT NULL</span> <span class="tok-k">REFERENCES</span> documents(id) <span class="tok-k">ON DELETE CASCADE</span>,
+    chunk_index  INT <span class="tok-k">NOT NULL</span>,
+    content      TEXT <span class="tok-k">NOT NULL</span>,
+    embedding    vector(<span class="tok-s">{dim}</span>) <span class="tok-k">NOT NULL</span>,   <span class="tok-c"># dim = EMBEDDING_DIM (default 1024)</span>
+    metadata     JSONB <span class="tok-k">DEFAULT</span> <span class="tok-s">'{}'</span>::jsonb,
+    <span class="tok-k">UNIQUE</span> (document_id, chunk_index)
+);</code></pre>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>Indexes &amp; the dimension guard</h2>
+    <p>
+      Three indexes are created idempotently with <code>CREATE INDEX IF NOT EXISTS</code> — a plain
+      b-tree on <code>document_id</code> (<code>idx_chunks_doc</code>) plus the two that make hybrid
+      search fast:
+    </p>
+    <table>
+      <thead><tr><th>Index</th><th>Type</th><th>Powers</th></tr></thead>
+      <tbody>
+        <tr><td><code>idx_chunks_embedding</code></td><td><code>hnsw (embedding vector_cosine_ops)</code></td><td>Approximate nearest-neighbour vector search by cosine distance.</td></tr>
+        <tr><td><code>idx_chunks_content_tsv</code></td><td><code>gin (content_tsv)</code></td><td>Full-text ranking (<code>ts_rank_cd</code>) over the generated tsvector.</td></tr>
+        <tr><td><code>idx_chunks_doc</code></td><td>b-tree on <code>document_id</code></td><td>Looking up / cascading chunks per document.</td></tr>
+      </tbody>
+    </table>
+    <p>
+      After the DDL, <code>ensure_schema()</code> queries <code>pg_attribute.atttypmod</code> for the
+      <code>embedding</code> column. If a pre-existing table's dimension doesn't match
+      <code>EMBEDDING_DIM</code>, it raises rather than silently corrupting search.
+    </p>
+    <div class="panel warn">
+      <h4>⚠️ Switching embedding models is destructive</h4>
+      <p>
+        The vector column width is fixed at table-create time. If you change
+        <code>EMBEDDING_MODEL</code> to one with a different dimensionality, <code>ensure_schema()</code>
+        raises <code>"document_chunks.embedding has dimension … but EMBEDDING_DIM is …"</code>. You must
+        drop the table and re-ingest to switch models.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>The connection pool</h2>
+    <p class="lede">
+      Connections come from a process-wide <code>psycopg_pool.ConnectionPool</code>, built lazily and
+      guarded by a <code>threading.Lock</code> for thread-safe single initialisation. Pooling pays the
+      "open TCP + auth + register adapter" cost once per pooled connection instead of on every query.
+    </p>
+    <pre><code><span class="tok-c"># db.py — the lazily-built shared pool</span>
+_pool = ConnectionPool(
+    conninfo=<span class="tok-f">_database_url</span>(),
+    min_size=<span class="tok-k">int</span>(os.<span class="tok-f">getenv</span>(<span class="tok-s">"DB_POOL_MIN_SIZE"</span>, <span class="tok-s">"1"</span>)),
+    max_size=<span class="tok-k">int</span>(os.<span class="tok-f">getenv</span>(<span class="tok-s">"DB_POOL_MAX_SIZE"</span>, <span class="tok-s">"10"</span>)),
+    timeout=<span class="tok-k">float</span>(os.<span class="tok-f">getenv</span>(<span class="tok-s">"DB_POOL_TIMEOUT"</span>, <span class="tok-s">"30"</span>)),
+    max_idle=<span class="tok-k">float</span>(os.<span class="tok-f">getenv</span>(<span class="tok-s">"DB_POOL_MAX_IDLE"</span>, <span class="tok-s">"300"</span>)),
+    configure=_configure_connection,   <span class="tok-c"># register_vector per connection</span>
+    kwargs={<span class="tok-s">"autocommit"</span>: <span class="tok-k">False</span>},
+    open=<span class="tok-k">True</span>,
+)</code></pre>
+    <div class="kv">
+      <div>DB_POOL_ENABLED</div><div>true — master switch; set false to force direct connections</div>
+      <div>DB_POOL_MIN_SIZE</div><div>1 — connections kept open at idle</div>
+      <div>DB_POOL_MAX_SIZE</div><div>10 — upper bound on concurrent pooled connections</div>
+      <div>DB_POOL_TIMEOUT</div><div>30 — seconds to wait for a free connection</div>
+      <div>DB_POOL_MAX_IDLE</div><div>300 — seconds before an idle extra connection is closed</div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>get_conn() &amp; graceful fallback</h2>
+    <p>
+      Callers never touch the pool directly — they use the <code>get_conn()</code> context manager,
+      which yields a pgvector-ready connection regardless of how it was obtained. The design degrades
+      rather than crashes:
+    </p>
+    <ul class="clean">
+      <li><b>No <code>psycopg_pool</code>?</b> The import is wrapped in <code>try/except</code>; if the
+        optional dependency is missing, <code>ConnectionPool</code> is <code>None</code> and pooling is
+        off.</li>
+      <li><b>Pool fails to build?</b> An exception during construction prints
+        <code>"⚠️  DB pool unavailable, using direct connections"</code>, sets
+        <code>_pool_disabled</code>, and never retries — it degrades, never crashes.</li>
+      <li><b>Pool off / unavailable?</b> <code>get_conn()</code> opens a short-lived direct
+        <code>psycopg.connect(...)</code>, calls <code>register_vector(conn)</code>, then commits on
+        clean exit and rolls back on error.</li>
+    </ul>
+    <pre><code><span class="tok-c"># db.py — same API whether pooled or direct</span>
+<span class="tok-f">@contextmanager</span>
+<span class="tok-k">def</span> <span class="tok-f">get_conn</span>() -&gt; Iterator[psycopg.Connection]:
+    pool = <span class="tok-f">_get_pool</span>()
+    <span class="tok-k">if</span> pool <span class="tok-k">is not</span> <span class="tok-k">None</span>:
+        <span class="tok-k">with</span> pool.<span class="tok-f">connection</span>() <span class="tok-k">as</span> conn:   <span class="tok-c"># returned to the pool on exit</span>
+            <span class="tok-k">yield</span> conn
+        <span class="tok-k">return</span>
+    conn = psycopg.<span class="tok-f">connect</span>(<span class="tok-f">_database_url</span>(), autocommit=<span class="tok-k">False</span>)
+    <span class="tok-k">try</span>:
+        <span class="tok-f">register_vector</span>(conn)
+        <span class="tok-k">yield</span> conn
+        conn.<span class="tok-f">commit</span>()
+    <span class="tok-k">except</span> Exception:
+        conn.<span class="tok-f">rollback</span>(); <span class="tok-k">raise</span>
+    <span class="tok-k">finally</span>:
+        conn.<span class="tok-f">close</span>()</code></pre>
+    <div class="panel tip">
+      <h4>🪶 register_vector, once per connection</h4>
+      <p>
+        Pooled connections register the pgvector adapter via the <code>configure=_configure_connection</code>
+        callback (run when each connection is created); direct connections call
+        <code>register_vector()</code> inline. Either way vectors flow as native Python lists / numpy
+        arrays with no manual casting. <code>close_pool()</code> tears the pool down on shutdown or in
+        tests.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>The embeddings factory</h2>
+    <p class="lede">
+      Embeddings live in one place — <code>src/storage/embeddings.py</code> — mirroring
+      <code>agents.llm</code>. <code>get_embedder()</code> returns an <code>OllamaEmbeddings</code> client,
+      cached with <code>@lru_cache(maxsize=4)</code> so repeated calls reuse the same client instead of
+      reconstructing it.
+    </p>
+    <pre><code><span class="tok-c"># embeddings.py — cached local embedder</span>
+<span class="tok-f">@lru_cache</span>(maxsize=<span class="tok-s">4</span>)
+<span class="tok-k">def</span> <span class="tok-f">get_embedder</span>(model: str | <span class="tok-k">None</span> = <span class="tok-k">None</span>) -&gt; OllamaEmbeddings:
+    <span class="tok-k">return</span> <span class="tok-f">OllamaEmbeddings</span>(
+        model=model <span class="tok-k">or</span> os.<span class="tok-f">getenv</span>(<span class="tok-s">"EMBEDDING_MODEL"</span>, <span class="tok-s">"mxbai-embed-large"</span>),
+        base_url=os.<span class="tok-f">getenv</span>(<span class="tok-s">"OLLAMA_BASE_URL"</span>, <span class="tok-s">"http://localhost:11434"</span>),
+    )</code></pre>
+    <p>
+      Two thin helpers wrap the cached client: <code>embed_query(text)</code> returns a single
+      <code>list[float]</code>, and <code>embed_documents(texts)</code> returns one vector per input. The
+      default model <code>mxbai-embed-large</code> produces 1024-dimensional vectors, matching the
+      <code>EMBEDDING_DIM</code> default in <code>db.py</code>.
+    </p>
+    <div class="kv">
+      <div>EMBEDDING_MODEL</div><div>mxbai-embed-large — must be pulled in Ollama first</div>
+      <div>OLLAMA_BASE_URL</div><div>http://localhost:11434 — local Ollama endpoint</div>
+      <div>EMBEDDING_DIM</div><div>1024 — vector width; must match the model's dimensionality</div>
+      <div>DATABASE_URL</div><div>required — Postgres conninfo; raises if unset</div>
+    </div>
+    <div class="panel warn">
+      <h4>📥 Pull the model before ingesting</h4>
+      <p>
+        The chosen model must exist in Ollama first — <code>ollama pull mxbai-embed-large</code>. Keep
+        <code>EMBEDDING_MODEL</code> and <code>EMBEDDING_DIM</code> consistent: if they drift apart from
+        the actual model output, the dimension guard in <code>ensure_schema()</code> will reject the
+        mismatch.
+      </p>
+    </div>
+  </section>
+
+  <div class="pagenav">
+    <a class="prev" href="../architecture.html"><span class="dir">← Back</span><span class="ttl">Full Architecture</span></a>
+    <a class="next" href="index.html"><span class="dir">More →</span><span class="ttl">All strategies</span></a>
+  </div>
+
+  <footer>🏦 Financial Agentic Platform · Storage &amp; embeddings deep dive</footer>
+</div>
+</body>
+</html>

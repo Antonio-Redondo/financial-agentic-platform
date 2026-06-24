@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Semantic Response Cache — Financial Agentic Platform</title>
+<link rel="stylesheet" href="strategy.css">
+</head>
+<body>
+
+<div class="crumbs">
+  <a href="../architecture.html">🏦 Architecture</a><span class="sep">›</span>
+  <a href="index.html">Strategies</a><span class="sep">›</span>
+  <span>Semantic Cache</span>
+</div>
+
+<header class="hero">
+  <p class="eyebrow">Strategy · Performance</p>
+  <h1>⚡ Semantic Response Cache</h1>
+  <p class="sub">
+    Generating an answer is the most expensive step in a query — a full LLM completion on CPU. When the
+    same, or a very similar, question is asked again, this cache returns the previously generated answer
+    instead of re-running the graph. It serves exact repeats in O(1) and near-duplicates by embedding
+    similarity, while staying deliberately conservative so a close-but-wrong match never wins.
+  </p>
+  <div class="badges">
+    <span class="badge">src/agents/semantic_cache.py</span>
+    <span class="badge">exact O(1) + embedding similarity</span>
+    <span class="badge">LRU + TTL</span>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <section>
+    <h2><span class="dot"></span>Two ways a query hits</h2>
+    <p class="lede">
+      <code>get()</code> tries the cheap path first, then falls back to embedding similarity. The query
+      text is normalized — lower-cased and whitespace-collapsed via <code>_normalize()</code> — before
+      either lookup, so trivial formatting differences still land an exact hit.
+    </p>
+    <ul class="clean">
+      <li><b>Exact hit — no embedding cost.</b> The normalized query is keyed directly into an
+        <code>OrderedDict</code> as <code>(namespace, normalized_query)</code>. A direct
+        <code>dict.get</code> means a verbatim repeat never calls Ollama at all.</li>
+      <li><b>Semantic hit — cosine similarity.</b> On a miss, the query is embedded with the same local
+        Ollama model used for retrieval, then dotted against every stored unit-normalized vector in the
+        same namespace. The best match wins only if its similarity is
+        <code>≥ RESPONSE_CACHE_THRESHOLD</code> (default <code>0.97</code>).</li>
+      <li><b>Returned payload.</b> A hit returns a copy of the original <code>process_query</code> result
+        with <code>cached=True</code>, <code>cache_kind</code> (<code>"exact"</code> / <code>"semantic"</code>)
+        and a rounded <code>cache_similarity</code> attached.</li>
+    </ul>
+    <div class="flow">
+      <div class="step"><div class="ico">🔤</div><h5>Normalize</h5><p>lower-case + collapse whitespace</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">🎯</div><h5>Exact?</h5><p>dict lookup · O(1) · no embed</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">🧭</div><h5>Semantic?</h5><p>cosine ≥ threshold in namespace</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">❌</div><h5>Miss</h5><p>run plan → retrieve → generate</p></div>
+    </div>
+    <pre><code><span class="tok-c"># semantic_cache.py — exact first, then similarity scan</span>
+norm = <span class="tok-f">_normalize</span>(query)
+<span class="tok-k">with</span> self._lock:
+    exact = self._store.<span class="tok-f">get</span>((namespace, norm))
+    <span class="tok-k">if</span> exact <span class="tok-k">is not</span> <span class="tok-k">None</span> <span class="tok-k">and not</span> self.<span class="tok-f">_expired</span>(exact):
+        self._store.<span class="tok-f">move_to_end</span>((namespace, norm))   <span class="tok-c"># LRU touch</span>
+        self.stats.hits_exact += <span class="tok-s">1</span>
+        <span class="tok-k">return</span> self.<span class="tok-f">_as_hit</span>(exact, similarity=<span class="tok-s">1.0</span>, kind=<span class="tok-s">"exact"</span>)</code></pre>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>Why the threshold is high</h2>
+    <div class="panel why">
+      <h4>🧮 0.97 is on purpose</h4>
+      <p>
+        In finance, <i>"CPR for pool A"</i> and <i>"CPR for pool B"</i> embed very closely — but returning
+        the wrong pool's answer is worse than a plain cache miss. The default
+        <code>RESPONSE_CACHE_THRESHOLD</code> of <code>0.97</code> demands near-identical questions before a
+        semantic match is served. Raise it to be stricter, lower it to trade safety for a higher hit rate;
+        tune it for your corpus.
+      </p>
+    </div>
+    <p>
+      The similarity scan runs <b>outside the lock</b> — embedding is the slow part — and only the cheap
+      bookkeeping (LRU touch, stat increments) is re-locked afterwards. If the embedder raises, the failure
+      is swallowed and treated as a miss: the cache must never break a query.
+    </p>
+    <pre><code><span class="tok-c"># both vectors are unit-normalized → dot product == cosine similarity</span>
+<span class="tok-k">for</span> key, e <span class="tok-k">in</span> candidates:
+    sim = <span class="tok-f">float</span>(np.<span class="tok-f">dot</span>(q_vec, e.embedding))
+    <span class="tok-k">if</span> sim &gt; best_sim:
+        best_key, best_sim = key, sim
+
+<span class="tok-k">if</span> best_key <span class="tok-k">is not</span> <span class="tok-k">None</span> <span class="tok-k">and</span> best_sim &gt;= <span class="tok-f">_threshold</span>():   <span class="tok-c"># RESPONSE_CACHE_THRESHOLD</span>
+    ...
+    self.stats.hits_semantic += <span class="tok-s">1</span></code></pre>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>Bounded LRU with optional TTL</h2>
+    <p>
+      The store is an <code>OrderedDict</code> used as an LRU: every read and write calls
+      <code>move_to_end()</code>, so the least-recently-used entry is at the front. After each
+      <code>put()</code>, <code>_evict_if_needed()</code> pops from the front until the store is back within
+      <code>RESPONSE_CACHE_MAX</code> (default <code>256</code>).
+    </p>
+    <ul class="clean">
+      <li><b>TTL is opt-in.</b> <code>RESPONSE_CACHE_TTL</code> defaults to <code>0</code>, meaning entries
+        never expire. When set above zero, <code>_expired()</code> ages out entries by
+        <code>created_at</code> on every read — expired entries are skipped on lookup rather than swept.</li>
+      <li><b>Thread-safe.</b> All store mutations are guarded by an <code>RLock</code>, since Streamlit
+        reruns execute on worker threads and a single process-wide singleton is shared across sessions.</li>
+      <li><b>Embed failures still cache.</b> <code>put()</code> stores the entry even when the embedding
+        comes back <code>None</code> — it just can't earn a semantic hit, only an exact one.</li>
+    </ul>
+    <pre><code><span class="tok-c"># eviction — drop least-recently-used until within RESPONSE_CACHE_MAX</span>
+<span class="tok-k">def</span> <span class="tok-f">_evict_if_needed</span>(self):
+    cap = <span class="tok-f">_max_size</span>()
+    <span class="tok-k">while</span> <span class="tok-f">len</span>(self._store) &gt; cap:
+        self._store.<span class="tok-f">popitem</span>(last=<span class="tok-k">False</span>)   <span class="tok-c"># front == LRU</span>
+        self.stats.evictions += <span class="tok-s">1</span></code></pre>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>Namespacing &amp; self-invalidation</h2>
+    <p>
+      Every entry is scoped to a <b>namespace</b> built in <code>FinancialAgent._cache_namespace()</code> as
+      <code>"{model_part}|{corpus}"</code> — the active model (or the literal <code>"router"</code> when the
+      router is on) joined with the corpus signature from <code>vector_store.chunk_count()</code>. Both the
+      exact key and the similarity scan are confined to a single namespace, so a cached answer can only ever
+      surface under the exact conditions that produced it.
+    </p>
+    <p>
+      That makes the cache <b>self-invalidating</b> on the changes that would make an old answer wrong:
+      switch the analyst model and the <code>model_part</code> changes; add, remove or re-chunk documents and
+      the chunk count moves — either way the namespace shifts and the stale entries simply stop matching.
+      On top of that, re-ingesting documents explicitly calls <code>cache.clear()</code> to drop everything.
+    </p>
+    <pre><code><span class="tok-c"># financial_agent.py — namespace = model + corpus signature</span>
+<span class="tok-k">def</span> <span class="tok-f">_cache_namespace</span>(self) -&gt; <span class="tok-k">str</span>:
+    model_part = <span class="tok-s">"router"</span> <span class="tok-k">if</span> self.use_router <span class="tok-k">else</span> self.model
+    <span class="tok-k">try</span>:
+        corpus = self.vector_store.<span class="tok-f">chunk_count</span>()
+    <span class="tok-k">except</span> <span class="tok-k">Exception</span>:
+        corpus = <span class="tok-s">"na"</span>
+    <span class="tok-k">return</span> <span class="tok-s">f"</span>{model_part}<span class="tok-s">|</span>{corpus}<span class="tok-s">"</span></code></pre>
+    <pre><code><span class="tok-c"># on re-ingest, also wipe the cache outright</span>
+<span class="tok-k">def</span> <span class="tok-f">rescan_documents</span>(self):
+    self.last_ingestion = <span class="tok-f">ingest_folder</span>(self.vector_store)
+    self.cache.<span class="tok-f">clear</span>()   <span class="tok-c"># new/changed chunks can change answers</span>
+    <span class="tok-k">return</span> self.last_ingestion</code></pre>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>What bypasses the cache</h2>
+    <div class="panel warn">
+      <h4>⚠️ Correctness gating</h4>
+      <p>
+        The cache is consulted <b>only for standalone questions</b>. In
+        <code>FinancialAgent.process_query</code>, <code>cacheable = not history and not filters</code>:
+      </p>
+      <ul class="clean">
+        <li><b>Follow-ups (history present)</b> are rewritten using the conversation, so the query text
+          alone doesn't identify the same answer.</li>
+        <li><b>Filtered searches (filters present)</b> change retrieval, so the same text can legitimately
+          produce a different answer.</li>
+      </ul>
+      <p>
+        In both cases the lookup is skipped <i>and</i> the result is never stored — the cache only ever
+        holds answers that are safe to replay verbatim.
+      </p>
+    </div>
+    <p>
+      A cache hit short-circuits the whole graph: the planner, retriever and analyst never run. The cached
+      answer is streamed straight to <code>on_token</code> and a trace line is prepended noting it was
+      served from the semantic cache, before the payload is returned. PII redaction runs <i>before</i> the
+      cache is touched, so the cache only ever sees already-scrubbed queries.
+    </p>
+    <pre><code><span class="tok-c"># financial_agent.py — a hit skips plan / retrieve / generate</span>
+cacheable = <span class="tok-k">not</span> history <span class="tok-k">and not</span> filters
+namespace = self.<span class="tok-f">_cache_namespace</span>()
+<span class="tok-k">if</span> cacheable:
+    hit = self.cache.<span class="tok-f">get</span>(query, namespace)
+    <span class="tok-k">if</span> hit <span class="tok-k">is not</span> <span class="tok-k">None</span>:
+        <span class="tok-k">if</span> on_token:
+            <span class="tok-f">on_token</span>(hit[<span class="tok-s">"output"</span>])     <span class="tok-c"># paint cached answer live</span>
+        <span class="tok-k">return</span> hit                    <span class="tok-c"># graph never runs</span>
+...
+<span class="tok-k">if</span> cacheable:
+    self.cache.<span class="tok-f">put</span>(query, response, namespace)</code></pre>
+    <div class="panel tip">
+      <h4>🪶 Fails open, never breaks a query</h4>
+      <p>
+        <code>get()</code> returns <code>None</code> when the cache is disabled, the query is blank, or
+        embedding fails — every path falls through to a normal graph run. A miss is always cheaper to
+        recover from than a wrong hit, which is the whole design bias here.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>Configuration knobs</h2>
+    <div class="kv">
+      <div>RESPONSE_CACHE_ENABLED</div><div>true — master switch; set falsy to disable lookups and stores</div>
+      <div>RESPONSE_CACHE_THRESHOLD</div><div>0.97 — min cosine similarity for a semantic hit; higher = stricter</div>
+      <div>RESPONSE_CACHE_MAX</div><div>256 — LRU capacity; least-recently-used entries evicted past this</div>
+      <div>RESPONSE_CACHE_TTL</div><div>0 — seconds before an entry expires; 0 = never expire</div>
+    </div>
+    <div class="panel">
+      <h4>📊 Observable behaviour</h4>
+      <p>
+        A <code>CacheStats</code> object tracks <code>hits_exact</code>, <code>hits_semantic</code>,
+        <code>misses</code>, <code>stores</code> and <code>evictions</code>, and derives
+        <code>hits</code>, <code>lookups</code> and <code>hit_rate</code>. Each served answer carries
+        <code>cache_kind</code> and <code>cache_similarity</code>, and the UI surfaces a
+        <code>⚡ cached</code> marker on those messages.
+      </p>
+    </div>
+  </section>
+
+  <div class="pagenav">
+    <a class="prev" href="../architecture.html"><span class="dir">← Back</span><span class="ttl">Full Architecture</span></a>
+    <a class="next" href="index.html"><span class="dir">More →</span><span class="ttl">All strategies</span></a>
+  </div>
+
+  <footer>🏦 Financial Agentic Platform · Semantic cache deep dive</footer>
+</div>
+</body>
+</html>

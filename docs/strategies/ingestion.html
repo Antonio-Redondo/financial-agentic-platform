@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ingestion Pipeline — Financial Agentic Platform</title>
+<link rel="stylesheet" href="strategy.css">
+</head>
+<body>
+
+<div class="crumbs">
+  <a href="../architecture.html">🏦 Architecture</a><span class="sep">›</span>
+  <a href="index.html">Strategies</a><span class="sep">›</span>
+  <span>Ingestion</span>
+</div>
+
+<header class="hero">
+  <p class="eyebrow">Internals · Ingestion</p>
+  <h1>📥 Ingestion Pipeline</h1>
+  <p class="sub">
+    A drop-folder ingester that walks <code>DOCUMENTS_DIR</code>, extracts text from a dozen file
+    formats, scans for PII, then chunks → embeds → upserts into pgvector. It's built to run on every
+    startup: a content-hash check means unchanged files are skipped and only new or edited documents
+    do real work.
+  </p>
+  <div class="badges">
+    <span class="badge">src/ingestion/pipeline.py</span>
+    <span class="badge">src/ingestion/loaders.py</span>
+    <span class="badge">folder scan → extract → upsert</span>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <section>
+    <h2><span class="dot"></span>The drop folder</h2>
+    <p class="lede">
+      Everything starts from a single directory. <code>documents_dir()</code> resolves it from the
+      <code>DOCUMENTS_DIR</code> environment variable, defaulting to <code>./data/documents</code>, and
+      returns an absolute path. The folder is created if it doesn't exist, so a fresh checkout just works.
+    </p>
+    <pre><code><span class="tok-k">def</span> <span class="tok-f">documents_dir</span>() -&gt; <span class="tok-k">str</span>:
+    <span class="tok-k">return</span> os.path.<span class="tok-f">abspath</span>(os.<span class="tok-f">getenv</span>(<span class="tok-s">"DOCUMENTS_DIR"</span>, <span class="tok-s">"./data/documents"</span>))</code></pre>
+    <p>The walker (<code>_iter_files</code>) recurses the tree but deliberately skips:</p>
+    <ul class="clean">
+      <li><b>Hidden directories</b> — any folder starting with <code>.</code> (e.g. <code>.git</code>, <code>.venv</code>).</li>
+      <li><b>Hidden files</b> — any filename starting with <code>.</code>.</li>
+      <li><b>The folder's own <code>README.md</code></b> — matched case-insensitively so it isn't ingested as content.</li>
+    </ul>
+    <p>
+      Ingestion runs in two situations: <b>on app startup</b>, and again whenever the sidebar triggers a
+      re-scan after a new upload. Uploads from the UI go through <code>save_upload()</code>, which writes
+      the <code>UploadedFile</code> into the same folder and then the scanner re-loads it from disk — so the
+      startup path and the upload path share identical code.
+    </p>
+    <div class="panel warn">
+      <h4>🛡️ Path-traversal guard on uploads</h4>
+      <p>
+        <code>save_upload()</code> strips path components from the uploaded name with
+        <code>os.path.basename</code> (after normalising <code>\</code> to <code>/</code>), rejects
+        <code>"."</code>/<code>".."</code>, and verifies with <code>os.path.commonpath</code> that the
+        target stays inside the docs folder — so a crafted name like <code>../../etc/passwd</code> can't
+        escape the directory.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>The pipeline, stage by stage</h2>
+    <p>
+      <code>ingest_folder(vector_store, folder=None)</code> drives the whole thing. For each file it runs
+      the same five stages, and returns an <code>IngestionResult</code> tallying
+      <code>scanned</code>, <code>ingested</code>, <code>skipped_unchanged</code>,
+      <code>skipped_empty</code> and <code>errors</code>.
+    </p>
+    <div class="flow">
+      <div class="step"><div class="ico">📂</div><h5>Load</h5><p><code>load_text(path)</code> → plain text; empty → <code>skipped_empty</code></p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">🛡️</div><h5>PII scan</h5><p><code>scan_document()</code> detects &amp; optionally redacts</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">🔑</div><h5>Hash</h5><p>SHA-256 of text vs <code>known_sources()</code></p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">🧩</div><h5>Chunk + embed</h5><p>inside <code>upsert_document()</code> → pgvector</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">📊</div><h5>Tally</h5><p>count chunks &amp; update <code>IngestionResult</code></p></div>
+    </div>
+    <pre><code><span class="tok-k">for</span> path <span class="tok-k">in</span> <span class="tok-f">_iter_files</span>(folder):
+    result.scanned += <span class="tok-s">1</span>
+    text = <span class="tok-f">load_text</span>(path)
+    <span class="tok-k">if</span> <span class="tok-k">not</span> text.<span class="tok-f">strip</span>():
+        result.skipped_empty += <span class="tok-s">1</span>
+        <span class="tok-k">continue</span>
+
+    <span class="tok-c"># PII detect (and optionally redact) BEFORE hashing</span>
+    text, pii_summary = <span class="tok-f">get_guardrails</span>().<span class="tok-f">scan_document</span>(text)
+
+    content_hash = <span class="tok-f">_hash_text</span>(text)
+    <span class="tok-k">if</span> known.<span class="tok-f">get</span>(path) == content_hash:
+        result.skipped_unchanged += <span class="tok-s">1</span>
+        <span class="tok-k">continue</span>
+
+    written = vector_store.<span class="tok-f">upsert_document</span>(source_path=path, content=text,
+                                          content_hash=content_hash, ...)</code></pre>
+    <p class="note">
+      A single file can also be ingested directly via <code>ingest_file(vector_store, path)</code>, which
+      returns the number of chunks written (or <code>None</code> for an empty / non-file path).
+    </p>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>Per-format loaders</h2>
+    <p class="lede">
+      <code>load_text(path)</code> looks up the lower-cased extension in the <code>_LOADERS</code> table and
+      calls the matching extractor. Each loader imports its library lazily. Anything not in the table
+      falls back to <code>_load_text</code> (UTF-8, then latin-1).
+    </p>
+    <table>
+      <thead><tr><th>Extension(s)</th><th>Loader</th><th>Library</th></tr></thead>
+      <tbody>
+        <tr><td><code>pdf</code></td><td><code>_load_pdf</code></td><td><code>pypdf</code> — joins <code>page.extract_text()</code> across pages</td></tr>
+        <tr><td><code>docx</code>, <code>doc</code></td><td><code>_load_docx</code></td><td><code>python-docx</code> (<code>docx.Document</code>) — paragraphs + table cells</td></tr>
+        <tr><td><code>xlsx</code>, <code>xls</code></td><td><code>_load_excel</code></td><td><code>pandas.read_excel</code> (all sheets, prefixed <code>Sheet: …</code>)</td></tr>
+        <tr><td><code>csv</code></td><td><code>_load_csv</code></td><td><code>pandas.read_csv</code> → <code>CSV Data (N rows)</code></td></tr>
+        <tr><td><code>pptx</code>, <code>ppt</code></td><td><code>_load_pptx</code></td><td><code>python-pptx</code> (<code>pptx.Presentation</code>) — per-slide shape text</td></tr>
+        <tr><td><code>json</code></td><td><code>_load_json</code></td><td>stdlib <code>json</code> — re-dumped with <code>indent=2</code></td></tr>
+        <tr><td><code>html</code>, <code>htm</code>, <code>xml</code></td><td><code>_load_html</code></td><td><code>BeautifulSoup</code> (<code>html.parser</code>) <code>.get_text()</code></td></tr>
+        <tr><td><code>md</code></td><td><code>_load_markdown</code></td><td><code>markdown</code> → <code>BeautifulSoup</code> text</td></tr>
+        <tr><td><code>rtf</code></td><td><code>_load_rtf</code></td><td>regex strip of <code>\control</code> words &amp; braces</td></tr>
+        <tr><td><code>txt</code> + fallback</td><td><code>_load_text</code></td><td>plain read, tries <code>utf-8</code> then <code>latin-1</code></td></tr>
+      </tbody>
+    </table>
+    <pre><code><span class="tok-k">def</span> <span class="tok-f">load_text</span>(path: <span class="tok-k">str</span>) -&gt; <span class="tok-k">str</span>:
+    ext = os.path.<span class="tok-f">splitext</span>(path)[<span class="tok-s">1</span>].<span class="tok-f">lstrip</span>(<span class="tok-s">"."</span>).<span class="tok-f">lower</span>()
+    loader = _LOADERS.<span class="tok-f">get</span>(ext, _load_text)
+    <span class="tok-k">try</span>:
+        <span class="tok-k">return</span> <span class="tok-f">loader</span>(path)
+    <span class="tok-k">except</span> Exception <span class="tok-k">as</span> e:   <span class="tok-c"># surface the cause, never crash ingest</span>
+        <span class="tok-f">print</span>(<span class="tok-s">f"⚠️  Loader failed for {path}: {e}"</span>, flush=<span class="tok-k">True</span>)
+        <span class="tok-k">return</span> <span class="tok-s">""</span></code></pre>
+    <div class="panel tip">
+      <h4>🧯 Loaders never crash the scan</h4>
+      <p>
+        Any extractor exception is caught inside <code>load_text</code>, logged with a
+        <code>⚠️</code> line, and turned into an empty string — so a single corrupt file becomes a
+        <code>skipped_empty</code> rather than aborting the whole folder. <code>SUPPORTED_EXTENSIONS</code>
+        documents the known set, but unknown extensions still fall back to the UTF-8 text reader.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>Content-hash dedupe &amp; re-chunk on change</h2>
+    <p>
+      Dedupe is content-based, not timestamp-based. <code>_hash_text</code> takes the SHA-256 of the
+      extracted text, and the scanner compares it against <code>vector_store.known_sources()</code> —
+      a <code>{path: content_hash}</code> map fetched once per scan.
+    </p>
+    <pre><code><span class="tok-k">def</span> <span class="tok-f">_hash_text</span>(text: <span class="tok-k">str</span>) -&gt; <span class="tok-k">str</span>:
+    <span class="tok-k">return</span> hashlib.<span class="tok-f">sha256</span>(text.<span class="tok-f">encode</span>(<span class="tok-s">"utf-8"</span>, errors=<span class="tok-s">"ignore"</span>)).<span class="tok-f">hexdigest</span>()</code></pre>
+    <ul class="clean">
+      <li><b>Same hash for a path</b> → <code>skipped_unchanged</code>, no embedding work.</li>
+      <li><b>New path or changed hash</b> → <code>upsert_document(...)</code> re-chunks and re-embeds; on success the file counts as <code>ingested</code> and logs <code>📥 Ingested … → N chunk(s)</code>.</li>
+      <li><b>Re-uploads of the same name</b> overwrite on disk, but the hash check downstream means identical content is never re-embedded.</li>
+    </ul>
+    <div class="panel why">
+      <h4>🔑 Why hash <em>after</em> the PII step</h4>
+      <p>
+        The text is scanned (and possibly redacted) <b>before</b> hashing, so the dedupe hash always
+        matches what actually gets embedded into pgvector. If redaction changes the text, the hash
+        changes with it and the document is correctly re-ingested.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>PII detection on ingest</h2>
+    <p>
+      Before anything is stored, each document passes through the guardrails layer:
+      <code>get_guardrails().scan_document(text)</code> returns the (possibly redacted) text plus a
+      <code>pii_summary</code>. When PII is found it's logged with a <code>🛡️</code> line, recorded under
+      <code>pii_findings</code> in the chunk metadata, and — when
+      <code>GUARDRAILS_PII_REDACT_ON_INGEST=true</code> — redacted so raw PII never lands in pgvector.
+    </p>
+    <pre><code>text, pii_summary = <span class="tok-f">get_guardrails</span>().<span class="tok-f">scan_document</span>(text)
+<span class="tok-k">if</span> pii_summary:
+    <span class="tok-f">print</span>(<span class="tok-s">f"🛡️ PII detected in {os.path.basename(path)}: {pii_summary}"</span>, flush=<span class="tok-k">True</span>)
+...
+vector_store.<span class="tok-f">upsert_document</span>(
+    ...,
+    extra_metadata={
+        <span class="tok-s">"source"</span>: <span class="tok-s">"folder_scan"</span>,
+        <span class="tok-s">"ingested_at"</span>: datetime.<span class="tok-f">utcnow</span>().<span class="tok-f">isoformat</span>() + <span class="tok-s">"Z"</span>,
+        <span class="tok-s">"pii_findings"</span>: pii_summary,
+    },
+)</code></pre>
+    <p class="note">
+      Every chunk also carries <code>source="folder_scan"</code> and an ISO-8601 UTC
+      <code>ingested_at</code> timestamp (suffixed <code>Z</code>) alongside <code>filename</code>,
+      <code>file_size</code> and <code>file_extension</code>.
+    </p>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>Configuration knobs</h2>
+    <div class="kv">
+      <div>DOCUMENTS_DIR</div><div>./data/documents — drop folder walked on startup and re-scan (resolved to an absolute path)</div>
+      <div>GUARDRAILS_PII_REDACT_ON_INGEST</div><div>when true, PII is redacted before embedding so raw PII never reaches pgvector</div>
+    </div>
+    <div class="panel">
+      <h4>📊 Reading the scan summary</h4>
+      <p>
+        At the end of a run the pipeline prints
+        <code>📊 Folder scan complete — scanned=…, ingested=…, unchanged=…, empty=…, errors=…</code>.
+        Per-file errors are caught, appended to <code>IngestionResult.errors</code> and logged with
+        <code>❌ Ingestion error</code> — one bad file never stops the rest of the folder.
+      </p>
+    </div>
+  </section>
+
+  <div class="pagenav">
+    <a class="prev" href="../architecture.html"><span class="dir">← Back</span><span class="ttl">Full Architecture</span></a>
+    <a class="next" href="index.html"><span class="dir">More →</span><span class="ttl">All strategies</span></a>
+  </div>
+
+  <footer>🏦 Financial Agentic Platform · Ingestion deep dive</footer>
+</div>
+</body>
+</html>

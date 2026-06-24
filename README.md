@@ -129,7 +129,48 @@ Specialized agents collaborate to route, retrieve, and answer:
 ## ⚖️ Evals & Model Router
 
 Different models trade quality for speed. Rather than guess, the app **measures**
-each model and routes per query.
+each model and routes per query. Offline, every model answers a curated dataset;
+each answer is scored three ways; the harness distils a per-complexity `policy.json`
+that the app's router then applies at query time:
+
+```mermaid
+flowchart LR
+    DS["📋 dataset.py<br/>financial Qs + key points<br/>simple · complex"]
+
+    subgraph Models["🤖 Each model answers"]
+        M1["llama3.2:1b<br/>(fast)"]
+        M2["qwen2.5:3b<br/>(strong)"]
+    end
+
+    subgraph Grade["⚖️ Score every answer"]
+        Cov["Key-point<br/>coverage"]
+        Judge["LLM-as-judge<br/>1–5"]
+        Lat["Latency<br/>p50 / p95"]
+    end
+
+    Policy[/"🗳️ policy.json<br/>per-complexity model pick"/]
+    Router["🔀 Router<br/>(in the app)"]
+
+    DS --> M1 & M2
+    M1 --> Cov & Judge & Lat
+    M2 --> Cov & Judge & Lat
+    Cov --> Policy
+    Judge --> Policy
+    Lat --> Policy
+    Policy -->|"fast unless Δjudge > tolerance"| Router
+
+    classDef data fill:#3b82f6,stroke:#1d4ed8,color:#fff
+    classDef model fill:#f59e0b,stroke:#b45309,color:#3a2400
+    classDef grade fill:#10b981,stroke:#047857,color:#04241a
+    classDef policy fill:#fbbf24,stroke:#b45309,color:#3a2400
+    classDef router fill:#8b5cf6,stroke:#6d28d9,color:#fff
+
+    class DS data
+    class M1,M2 model
+    class Cov,Judge,Lat grade
+    class Policy policy
+    class Router router
+```
 
 **Run the evals** (needs Ollama; not Postgres):
 
@@ -172,39 +213,43 @@ questions about them:
 
 ## 🏗️ Architecture
 
+The application at runtime — a question flows through guardrails and the semantic
+cache into the LangGraph workflow, grounded by pgvector and answered by a
+router-selected local model (the routing `policy.json` comes from the **Evals &
+Model Router** section below):
+
 ```mermaid
 flowchart TB
     User([👤 User])
 
     subgraph UI["🖥️ UI — Streamlit"]
-        App["app.py<br/>chat · upload · model & routing controls"]
+        App["app.py<br/>chat · upload · controls"]
     end
 
-    subgraph Agents["🧠 Agentic Graph — LangGraph"]
-        direction TB
-        Planner["🧭 Planner<br/>doc-vs-general · SIMPLE/COMPLEX"]
-        Router["🔀 Model Router<br/>policy.json → fast/strong"]
-        Retriever["🔎 Retriever<br/>hybrid search + RRF"]
-        Analyst["✍️ Analyst<br/>streamed, grounded answer"]
-        Finalize["✅ Finalize"]
+    subgraph Guard["🛡️ Guardrails"]
+        InGuard["Input guard<br/>length · injection · PII"]
+        OutGuard["Output guard<br/>PII redact"]
+    end
 
+    Cache{"⚡ Semantic<br/>cache hit?"}
+
+    subgraph Graph["🧠 LangGraph workflow"]
+        direction TB
+        Planner["🧭 Planner<br/>doc/general · simple/complex"]
+        Router["🔀 Model router"]
+        Retriever["🔎 Retriever<br/>hybrid + RRF"]
+        Analyst["✍️ Analyst<br/>streamed answer"]
+        Finalize["✅ Finalize"]
         Planner -->|document| Retriever
         Planner -->|general| Analyst
         Retriever --> Analyst
         Analyst --> Finalize
-        Router -.->|selects model| Analyst
-        Planner -.->|complexity| Router
+        Planner -. complexity .-> Router
+        Router -. selects model .-> Analyst
     end
 
-    subgraph Ingestion["📥 Ingestion"]
-        direction TB
-        Loaders["loaders.py<br/>PDF/DOCX/XLSX/… → text"]
-        Pipeline["pipeline.py<br/>scan · chunk · upsert"]
-        Loaders --> Pipeline
-    end
-
-    subgraph Storage["🗄️ Storage — Postgres + pgvector"]
-        DB[("document_chunks<br/>HNSW cosine + GIN full-text")]
+    subgraph Storage["🗄️ Postgres + pgvector"]
+        DB[("document_chunks<br/>HNSW + GIN")]
     end
 
     subgraph Ollama["🤖 Ollama (local)"]
@@ -212,24 +257,41 @@ flowchart TB
         Embed["Embedding model"]
     end
 
-    subgraph Evals["⚖️ Evals"]
-        Runner["run_evals.py<br/>coverage · LLM-judge · latency"]
-        Policy["policy.json"]
-        Runner --> Policy
+    subgraph Ingestion["📥 Ingestion"]
+        Loaders["loaders.py"] --> Pipeline["pipeline.py<br/>chunk · embed · upsert"]
     end
 
-    User <-->|query / streamed answer| App
-    App --> Planner
-    Finalize --> App
+    Policy[/"policy.json<br/>(from evals)"/]
+
+    User -->|query| App --> InGuard --> Cache
+    Cache -->|miss| Planner
+    Cache -->|hit| OutGuard
+    Finalize --> OutGuard --> App -->|answer| User
 
     Retriever -->|top-k| DB
     Pipeline -->|embeddings| DB
-    Pipeline -. embeds .-> Embed
-    Retriever -. embeds query .-> Embed
-    Planner -. LLM call .-> Chat
-    Analyst -. LLM call .-> Chat
-    Policy -.->|routing data| Router
-    Runner -. scores .-> Chat
+    Retriever -. embed query .-> Embed
+    Pipeline -. embed .-> Embed
+    Planner -. LLM .-> Chat
+    Analyst -. LLM .-> Chat
+    Policy -. routing .-> Router
+
+    classDef ui fill:#3b82f6,stroke:#1d4ed8,color:#fff
+    classDef guard fill:#06b6d4,stroke:#0e7490,color:#062a33
+    classDef agent fill:#8b5cf6,stroke:#6d28d9,color:#fff
+    classDef store fill:#10b981,stroke:#047857,color:#04241a
+    classDef ollama fill:#f59e0b,stroke:#b45309,color:#3a2400
+    classDef policy fill:#fbbf24,stroke:#b45309,color:#3a2400
+    classDef cache fill:#ec4899,stroke:#be185d,color:#fff
+
+    class App ui
+    class InGuard,OutGuard guard
+    class Planner,Router,Retriever,Analyst,Finalize agent
+    class DB store
+    class Chat,Embed ollama
+    class Loaders,Pipeline store
+    class Policy policy
+    class Cache cache
 ```
 
 ## 🏗️ Project Structure

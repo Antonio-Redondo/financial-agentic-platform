@@ -156,14 +156,6 @@
   .node .row:last-child{border-bottom:none}
   .node .row span:last-child{color:var(--muted);text-align:right}
 
-  /* Mermaid diagram */
-  .mermaid-wrap{
-    background:var(--panel);border:1px solid var(--line);border-radius:16px;
-    padding:22px;box-shadow:var(--shadow);overflow-x:auto;
-  }
-  .mermaid{display:flex;justify-content:center;min-height:60px}
-  .mermaid svg{max-width:100%;height:auto}
-
   footer{margin-top:60px;text-align:center;color:var(--muted);font-size:.82rem;
     border-top:1px solid var(--line);padding-top:24px}
   .note{font-size:.8rem;color:var(--muted);margin-top:10px}
@@ -200,79 +192,6 @@
 </header>
 
 <div class="wrap">
-
-  <!-- Architecture diagram -->
-  <section>
-    <h2><span class="num">◆</span>Architecture at a Glance</h2>
-    <p class="lede">
-      The whole system on one canvas: the Streamlit UI drives a multi-agent LangGraph workflow
-      (planner → retriever → analyst → finalize) with a data-driven model router, all backed by a
-      local Ollama engine, a Postgres + pgvector store fed by the ingestion pipeline, and an offline
-      eval harness that derives the routing policy. Solid arrows are the request/data path; dotted
-      arrows are LLM / embedding calls and routing-policy data.
-    </p>
-    <div class="mermaid-wrap">
-      <pre class="mermaid">
-flowchart TB
-    User([👤 User])
-
-    subgraph UI["🖥️ UI — Streamlit"]
-        App["app.py<br/>chat · upload · model & routing controls"]
-    end
-
-    subgraph Agents["🧠 Agentic Graph — LangGraph"]
-        direction TB
-        Planner["🧭 Planner<br/>doc-vs-general · SIMPLE/COMPLEX"]
-        Router["🔀 Model Router<br/>policy.json → fast/strong"]
-        Retriever["🔎 Retriever<br/>hybrid search + RRF"]
-        Analyst["✍️ Analyst<br/>streamed, grounded answer"]
-        Finalize["✅ Finalize"]
-
-        Planner -->|document| Retriever
-        Planner -->|general| Analyst
-        Retriever --> Analyst
-        Analyst --> Finalize
-        Router -.->|selects model| Analyst
-        Planner -.->|complexity| Router
-    end
-
-    subgraph Ingestion["📥 Ingestion"]
-        direction TB
-        Loaders["loaders.py<br/>PDF/DOCX/XLSX/… → text"]
-        Pipeline["pipeline.py<br/>scan · chunk · upsert"]
-        Loaders --> Pipeline
-    end
-
-    subgraph Storage["🗄️ Storage — Postgres + pgvector"]
-        DB[("document_chunks<br/>HNSW cosine + GIN full-text")]
-    end
-
-    subgraph Ollama["🤖 Ollama (local)"]
-        Chat["Chat models<br/>fast + strong"]
-        Embed["Embedding model"]
-    end
-
-    subgraph Evals["⚖️ Evals"]
-        Runner["run_evals.py<br/>coverage · LLM-judge · latency"]
-        Policy["policy.json"]
-        Runner --> Policy
-    end
-
-    User <-->|query / streamed answer| App
-    App --> Planner
-    Finalize --> App
-
-    Retriever -->|top-k| DB
-    Pipeline -->|embeddings| DB
-    Pipeline -. embeds .-> Embed
-    Retriever -. embeds query .-> Embed
-    Planner -. LLM call .-> Chat
-    Analyst -. LLM call .-> Chat
-    Policy -.->|routing data| Router
-    Runner -. scores .-> Chat
-      </pre>
-    </div>
-  </section>
 
   <!-- Overview -->
   <section>
@@ -542,7 +461,7 @@ flowchart TB
     <div class="grid">
       <div class="card">
         <div class="accent" style="background:var(--pink)"></div>
-        <h3>🕸️ FinancialGraph</h3>
+        <h3>🕸️ <a href="strategies/agent-graph.html">FinancialGraph</a></h3>
         <p class="note">src/agents/graph.py</p>
         <ul>
           <li>Compiles the LangGraph <code>StateGraph</code></li>
@@ -553,7 +472,7 @@ flowchart TB
       </div>
       <div class="card">
         <div class="accent" style="background:var(--blue)"></div>
-        <h3>🧭 FinancialAgent</h3>
+        <h3>🧭 <a href="strategies/financial-agent.html">FinancialAgent</a></h3>
         <p class="note">src/agents/financial_agent.py</p>
         <ul>
           <li>Entry point that runs the graph</li>
@@ -563,7 +482,7 @@ flowchart TB
       </div>
       <div class="card">
         <div class="accent" style="background:var(--orange)"></div>
-        <h3>🔀 Model Router</h3>
+        <h3>🔀 <a href="strategies/model-routing-strategy.html">Model Router</a></h3>
         <p class="note">src/agents/router.py</p>
         <ul>
           <li><code>pick_model(complexity)</code> → fast / strong</li>
@@ -573,27 +492,27 @@ flowchart TB
       </div>
       <div class="card">
         <div class="accent" style="background:var(--cyan)"></div>
-        <h3>🔎 VectorStore</h3>
+        <h3>🔎 <a href="strategies/chunking-strategy.html">VectorStore</a></h3>
         <p class="note">src/agents/vector_store.py</p>
         <ul>
-          <li>RecursiveCharacterTextSplitter chunking</li>
-          <li>Hybrid search: pgvector cosine + full-text, RRF-fused</li>
+          <li><a href="strategies/chunking-strategy.html">RecursiveCharacterTextSplitter chunking</a></li>
+          <li><a href="strategies/retrieval-strategy.html">Hybrid search</a>: pgvector cosine + full-text, RRF-fused</li>
           <li>Upsert with content-hash dedupe</li>
         </ul>
       </div>
       <div class="card">
         <div class="accent" style="background:var(--violet)"></div>
-        <h3>🧩 Retrieval helpers</h3>
+        <h3>🧩 <a href="strategies/retrieval-strategy.html">Retrieval helpers</a></h3>
         <p class="note">src/agents/retrieval.py</p>
         <ul>
-          <li>Conversational rewrite of follow-ups</li>
-          <li>Multi-query expansion · HyDE · LLM rerank</li>
+          <li><a href="strategies/prompt-optimization.html">Conversational rewrite</a> of follow-ups</li>
+          <li>Multi-query expansion · HyDE · <a href="strategies/reranking-strategy.html">LLM rerank</a></li>
           <li>All env-toggled; off by default for CPU speed</li>
         </ul>
       </div>
       <div class="card">
         <div class="accent" style="background:var(--green)"></div>
-        <h3>🗄️ Storage &amp; Embeddings</h3>
+        <h3>🗄️ <a href="strategies/storage-embeddings.html">Storage &amp; Embeddings</a></h3>
         <p class="note">src/storage/db.py · embeddings.py</p>
         <ul>
           <li>psycopg3 + pgvector; schema bootstrap</li>
@@ -604,7 +523,7 @@ flowchart TB
       </div>
       <div class="card">
         <div class="accent" style="background:var(--green)"></div>
-        <h3>🛡️ Guardrails &amp; PII</h3>
+        <h3>🛡️ <a href="strategies/guardrails.html">Guardrails &amp; PII</a></h3>
         <p class="note">src/guardrails/</p>
         <ul>
           <li>Input: length cap + prompt-injection scan</li>
@@ -615,7 +534,7 @@ flowchart TB
       </div>
       <div class="card">
         <div class="accent" style="background:var(--cyan)"></div>
-        <h3>⚡ Semantic Cache</h3>
+        <h3>⚡ <a href="strategies/semantic-cache.html">Semantic Cache</a></h3>
         <p class="note">src/agents/semantic_cache.py</p>
         <ul>
           <li>Exact (O(1)) + embedding-similarity hits</li>
@@ -626,7 +545,7 @@ flowchart TB
       </div>
       <div class="card">
         <div class="accent" style="background:var(--cyan)"></div>
-        <h3>📥 Ingestion</h3>
+        <h3>📥 <a href="strategies/ingestion.html">Ingestion</a></h3>
         <p class="note">src/ingestion/pipeline.py · loaders.py</p>
         <ul>
           <li>Folder scan → extract → upsert into pgvector</li>
@@ -636,7 +555,7 @@ flowchart TB
       </div>
       <div class="card">
         <div class="accent" style="background:var(--green)"></div>
-        <h3>🟢 LLM factory</h3>
+        <h3>🟢 <a href="strategies/llm-factory.html">LLM factory</a></h3>
         <p class="note">src/agents/llm.py</p>
         <ul>
           <li>Single place that builds <code>ChatOllama</code></li>
@@ -646,7 +565,7 @@ flowchart TB
       </div>
       <div class="card">
         <div class="accent" style="background:var(--blue)"></div>
-        <h3>🎨 Streamlit App</h3>
+        <h3>🎨 <a href="strategies/streamlit-app.html">Streamlit App</a></h3>
         <p class="note">src/ui/app.py</p>
         <ul>
           <li>Chat with streamed answers + ↑/↓ history</li>
@@ -1367,30 +1286,5 @@ flowchart TB
   </footer>
 
 </div>
-
-<script type="module">
-  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
-  mermaid.initialize({
-    startOnLoad: true,
-    theme: "base",
-    securityLevel: "loose",
-    themeVariables: {
-      darkMode: true,
-      fontFamily: '"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif',
-      background: "#111c30",
-      primaryColor: "#16233c",
-      primaryBorderColor: "#243553",
-      primaryTextColor: "#e8eefb",
-      secondaryColor: "#16233c",
-      tertiaryColor: "#0b1220",
-      lineColor: "#06b6d4",
-      clusterBkg: "#0b1220",
-      clusterBorder: "#243553",
-      titleColor: "#9fb0cc",
-      edgeLabelBackground: "#111c30",
-      nodeTextColor: "#e8eefb"
-    }
-  });
-</script>
 </body>
 </html>
