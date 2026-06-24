@@ -1125,6 +1125,161 @@
       <a href="strategies/index.html">deep-dive page</a> where applicable.</p>
   </section>
 
+  <!-- Developer agents & skills -->
+  <section>
+    <h2><span class="num">14</span>Developer Agents &amp; Skills (Copilot)</h2>
+    <p class="lede">
+      Outside the runtime, the repo also ships a set of <b>Copilot subagents</b> and <b>skills</b> in
+      <code>.github/</code> that codify how to work on this codebase. <b>Agents</b> are personas with a mission,
+      responsibilities and an output template (invoked through the chat <i>runSubagent</i> flow). <b>Skills</b>
+      are procedural companions that an agent — or the default assistant — reads when a matching task comes up.
+      Most agents have a paired skill: the agent defines <i>who</i> and <i>what</i>, the skill walks the
+      step-by-step <i>how</i> for this specific stack (pgvector + Ollama + LangGraph, Windows + <code>.venv</code>).
+    </p>
+
+    <div class="flowrow">
+      <div class="step"><div class="ico">👤</div><h4>Agent</h4><p>persona · mission · output template</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">📖</div><h4>Skill</h4><p>step-by-step procedure for this stack</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">🛠️</div><h4>Tools</h4><p>read/grep/run · evals harness · pytest</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">📝</div><h4>Output</h4><p>findings · patch diff · checklist · verdict</p></div>
+    </div>
+
+    <h4 style="color:var(--muted);font-weight:600;margin:18px 0 8px">👤 Agents — <code>.github/agents/</code></h4>
+    <div class="grid">
+      <div class="card">
+        <div class="accent" style="background:var(--violet)"></div>
+        <h3>🛠️ agent-builder</h3>
+        <p class="note">.github/agents/agent-builder.agent.md</p>
+        <ul>
+          <li>Interviews the user, then scaffolds a new agent file</li>
+          <li>Writes to <code>.github/agents/&lt;name&gt;.agent.md</code></li>
+          <li>Enforces template + name-collision check</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="accent" style="background:var(--green)"></div>
+        <h3>🔍 code-reviewer</h3>
+        <p class="note">.github/agents/code-reviewer.agent.md</p>
+        <ul>
+          <li>5-dim review: correctness · readability · architecture · security · perf</li>
+          <li>Skill adds explicit OWASP Top 10 pass</li>
+          <li>Returns a findings report before merge</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="accent" style="background:var(--blue)"></div>
+        <h3>🚀 pull-request-creator</h3>
+        <p class="note">.github/agents/pull-request-creator.agent.md</p>
+        <ul>
+          <li>Silent pre-flight (clean tree · rebased · tests/lint pass) then an interactive interview</li>
+          <li>Drafts title + structured body, assembles the <code>gh pr create</code> command</li>
+          <li>Stops at the proposed command — never pushes or opens the PR itself</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="accent" style="background:var(--cyan)"></div>
+        <h3>🔎 rag-retrieval-tuner</h3>
+        <p class="note">.github/agents/rag-retrieval-tuner.agent.md</p>
+        <ul>
+          <li>Diagnoses recall/precision against <code>evals/run_evals.py</code></li>
+          <li>Proposes rewrite / multi-query / HyDE / rerank changes</li>
+          <li>Verifies via <code>policy.json</code> + summary deltas</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="accent" style="background:var(--blue)"></div>
+        <h3>♻️ refactoring-engineer</h3>
+        <p class="note">.github/agents/refactoring-engineer.agent.md</p>
+        <ul>
+          <li>In-place refactor · UI framework migration · backend version upgrade</li>
+          <li>Behavior-preserving — gated by the existing test suite</li>
+          <li>Returns findings + concrete patch diffs</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="accent" style="background:var(--pink)"></div>
+        <h3>🏗️ scaffolding-creator</h3>
+        <p class="note">.github/agents/scaffolding-creator.agent.md</p>
+        <ul>
+          <li>End-to-end runnable skeleton for a specified stack</li>
+          <li>Layout · manifests · build/lint/test · smoke test · README · <code>.env.example</code></li>
+          <li>Use before any business logic is written</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="accent" style="background:var(--amber)"></div>
+        <h3>🛡️ security-auditor</h3>
+        <p class="note">.github/agents/security-auditor.agent.md</p>
+        <ul>
+          <li>Threat model + secure-coding review</li>
+          <li>Skill: prompt injection · context exfil · OWASP-LLM Top 10</li>
+          <li>Scoped to the local-only trust boundary</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="accent" style="background:var(--green)"></div>
+        <h3>🧪 test-engineer</h3>
+        <p class="note">.github/agents/test-engineer.agent.md</p>
+        <ul>
+          <li>Designs/writes unit tests for graph nodes &amp; retrieval helpers</li>
+          <li>Honors the project's no-real-LLM / no-real-DB convention</li>
+          <li>Matches patterns in <code>tests/conftest.py</code></li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="accent" style="background:var(--orange)"></div>
+        <h3>⚡ web-performance-auditor</h3>
+        <p class="note">.github/agents/web-performance-auditor.agent.md</p>
+        <ul>
+          <li>Core Web Vitals + loading/rendering/network audit</li>
+          <li>Calls out structural perf anti-patterns</li>
+          <li>For the Streamlit UI &amp; the docs HTML pages</li>
+        </ul>
+      </div>
+    </div>
+
+    <h4 style="color:var(--muted);font-weight:600;margin:22px 0 8px">📖 Skills — <code>.github/skills/</code></h4>
+    <table>
+      <thead>
+        <tr><th>Skill</th><th>What it codifies</th><th>Paired agent</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><b>code-reviewer</b><br><span class="note">SKILL.md</span></td>
+          <td>Five-dimension review procedure plus an explicit <b>OWASP Top 10</b> security checklist for auth, input handling, queries, deserialization, file I/O, secrets, dependencies, HTTP surfaces.</td>
+          <td><code>code-reviewer</code></td>
+        </tr>
+        <tr>
+          <td><b>rag-retrieval-tuner</b><br><span class="note">SKILL.md</span></td>
+          <td>How to use <code>evals/run_evals.py</code> as ground truth when adding/tuning a retrieval stage, changing chunk size or hybrid weights, or refreshing the router policy.</td>
+          <td><code>rag-retrieval-tuner</code></td>
+        </tr>
+        <tr>
+          <td><b>refactoring-engineer</b><br><span class="note">SKILL.md</span></td>
+          <td>Per-mode runbook: in-place refactors, UI framework migration (React ↔ Angular/Vue/Svelte, Streamlit → SPA), and backend version upgrades — each with parity checks.</td>
+          <td><code>refactoring-engineer</code></td>
+        </tr>
+        <tr>
+          <td><b>security-auditor</b><br><span class="note">SKILL.md</span></td>
+          <td>Threat model for this local RAG app: LLM prompts, file uploads, the documents folder, the pgvector schema, the LangSmith integration, and any new external HTTP call.</td>
+          <td><code>security-auditor</code></td>
+        </tr>
+        <tr>
+          <td><b>test-engineer</b><br><span class="note">SKILL.md</span></td>
+          <td>Writes tests in the project's no-IO style — fixtures from <code>tests/conftest.py</code>, fakes for Ollama &amp; pgvector — for graph nodes, retrieval helpers, router policy, ingestion loaders.</td>
+          <td><code>test-engineer</code></td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="note">Agents without a paired skill (<code>agent-builder</code>, <code>pull-request-creator</code>,
+      <code>scaffolding-creator</code>, <code>web-performance-auditor</code>) are self-contained — their procedure lives entirely in the agent file.
+      Skills also load automatically for the default assistant when the user's task matches the skill's
+      description, so the same procedural knowledge runs whether or not a subagent is explicitly invoked.</p>
+  </section>
+
   <footer>
     🏦 Financial Agentic Platform &nbsp;·&nbsp; Multi-agent LangGraph workflow on a local Ollama LLM &nbsp;·&nbsp; Built with Streamlit
     <div class="note">Architecture overview — derived from the project source (graph.py, router.py, financial_agent.py, retrieval.py, vector_store.py, guardrails/, semantic_cache.py, storage/, ingestion/, evals/) and the README.</div>
