@@ -715,9 +715,99 @@
     </div>
   </section>
 
+  <!-- Cost optimization -->
+  <section>
+    <h2><span class="num">08</span>Cost Optimization</h2>
+    <p class="lede">
+      Because the platform runs <b>100% locally on Ollama</b>, there is no per-token API bill — <b>"cost" here is
+      compute, latency and tokens</b> on your own CPU/GPU. The design attacks that on five fronts: <b>skip work
+      entirely</b> (cache), <b>bound the work</b> (token budgets + input cap), <b>right-size the model</b>
+      (complexity router), <b>reuse warm resources</b> (pool + client caches), and <b>keep the expensive
+      retrieval tricks off by default</b>. An offline eval harness measures latency so the routing policy is
+      tuned from real numbers, not guesses.
+    </p>
+
+    <div class="flowrow">
+      <div class="step"><div class="ico">⚡</div><h4>Skip</h4><p>cache hit → no plan / retrieve / generate at all</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">✂️</div><h4>Bound</h4><p>per-agent token budgets + 8k input cap</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">🔀</div><h4>Right-size</h4><p>complexity → fast vs strong model</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">🔌</div><h4>Reuse</h4><p>warm pool · cached embedder/clients</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="ico">⏱️</div><h4>Measure</h4><p>eval latency p50/p95 → policy</p></div>
+    </div>
+
+    <div class="grid" style="margin-top:18px">
+      <div class="card">
+        <div class="accent" style="background:var(--cyan)"></div>
+        <h3>⚡ Skip work entirely</h3>
+        <p class="note">semantic_cache.py</p>
+        <ul>
+          <li>Exact hit → <b>O(1)</b>, not even an embedding call</li>
+          <li>Semantic hit (cosine ≥ <code>0.97</code>) returns the prior answer — <b>zero LLM tokens</b></li>
+          <li>A hit skips <b>plan + retrieve + generate</b> — the whole graph</li>
+          <li>Highest-leverage lever for repeated / near-duplicate questions</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="accent" style="background:var(--green)"></div>
+        <h3>✂️ Bound the work</h3>
+        <p class="note">graph.py · llm.py · guardrails/</p>
+        <ul>
+          <li>Per-agent <code>num_predict</code> caps: planner <b>24</b>, analyst <b>700</b>, judge <b>8</b></li>
+          <li>Input char cap <code>GUARDRAILS_MAX_INPUT_CHARS</code> (<b>8000</b>) rejects oversized prompts <i>before</i> any model call</li>
+          <li>PII redaction also trims raw spans out of prompts</li>
+          <li>Chunk size <b>500/100</b> keeps embed + context small</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="accent" style="background:var(--orange)"></div>
+        <h3>🔀 Right-size the model</h3>
+        <p class="note">router.py · evals/</p>
+        <ul>
+          <li>Complexity label (already produced by the planner) → fast vs strong model: <b>no extra latency</b> to decide</li>
+          <li>Policy from <code>policy.json</code>, gated by <code>QUALITY_TOLERANCE</code> — only pay for the strong model when its judge gain clears the bar</li>
+          <li>Expensive retrieval (multi-query, HyDE, LLM rerank) <b>off by default</b> — each adds 1–3 extra LLM calls</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="accent" style="background:var(--blue)"></div>
+        <h3>🔌 Reuse warm resources</h3>
+        <p class="note">db.py · embeddings.py · graph.py</p>
+        <ul>
+          <li><b>psycopg-pool</b> reuses warm connections (no per-query TCP + auth + adapter setup)</li>
+          <li><code>@lru_cache</code> embedder + per-model analyst clients — built once</li>
+          <li>Content-hash dedupe skips <b>re-embedding unchanged docs</b></li>
+          <li>Lazy load: the strong model only loads on the first complex query</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="accent" style="background:var(--amber)"></div>
+        <h3>⏱️ Measure to tune</h3>
+        <p class="note">evals/run_evals.py</p>
+        <ul>
+          <li>Wall-clock latency (mean / p50 / p95) per model per complexity</li>
+          <li><code>fast = min latency</code>, <code>strong = max judge</code>; route picks fast unless Δjudge &gt; tolerance</li>
+          <li>Re-run <code>python -m evals.run_evals</code> to refresh <code>policy.json</code> when models change</li>
+        </ul>
+      </div>
+    </div>
+
+    <p class="note">
+      <b>Current policy is a measured no-op for routing.</b> The latest
+      <code>evals/results/policy.json</code> routes <i>both</i> <code>simple</code> and <code>complex</code> to
+      <code>qwen2.5:3b</code> (Δjudge −0.50 and +0.00, both within the <code>0.4</code> tolerance), so the planner
+      still spends one short classification call but the analyst model never actually switches. The router is a
+      working, cost-aware <i>framework</i> that currently finds no speed win to take — swap in models with a
+      wider speed/quality spread and re-run the evals, and it will start saving latency automatically.
+    </p>
+  </section>
+
   <!-- Deep-dive strategies -->
   <section>
-    <h2><span class="num">08</span>Deep-Dive Strategies</h2>
+    <h2><span class="num">09</span>Deep-Dive Strategies</h2>
     <p class="lede">
       The RAG and agent design decisions — each on its own page, crisp and tied back to the exact
       source file that implements it. Start at the
@@ -809,7 +899,7 @@
 
   <!-- Tech stack -->
   <section>
-    <h2><span class="num">09</span>Technology Stack</h2>
+    <h2><span class="num">10</span>Technology Stack</h2>
     <div class="stack">
       <div class="card">
         <h3>🎨 Frontend</h3>
@@ -865,7 +955,7 @@
 
   <!-- Runtime topology -->
   <section>
-    <h2><span class="num">10</span>Runtime Topology</h2>
+    <h2><span class="num">11</span>Runtime Topology</h2>
     <p class="lede">Everything runs locally as three cooperating processes, wired together by <code>.env</code>.</p>
     <div class="infra">
       <div class="node">
@@ -895,7 +985,7 @@
 
   <!-- Use cases -->
   <section>
-    <h2><span class="num">11</span>Key Use Cases</h2>
+    <h2><span class="num">12</span>Key Use Cases</h2>
     <table>
       <thead>
         <tr><th>Use case</th><th>Input</th><th>Analysis</th><th>Output</th></tr>
@@ -912,7 +1002,7 @@
 
   <!-- Quick reference -->
   <section class="qr">
-    <h2><span class="num">12</span>Quick Reference — Strategy Cheat-Sheet</h2>
+    <h2><span class="num">13</span>Quick Reference — Strategy Cheat-Sheet</h2>
     <p class="lede">
       The landscape of RAG &amp; agent techniques at a glance, with what this platform actually does called out.
       Use the legend to tell a default-on choice from an opt-in toggle from a technique not (yet) wired in.

@@ -1,0 +1,217 @@
+{
+  "config": {
+    "models": [
+      "llama3.2:1b",
+      "qwen2.5:3b"
+    ],
+    "judge": "qwen2.5:3b",
+    "queries": 6,
+    "num_predict": 384
+  },
+  "policy": {
+    "fast_model": "qwen2.5:3b",
+    "strong_model": "llama3.2:1b",
+    "route": {
+      "simple": "qwen2.5:3b",
+      "complex": "qwen2.5:3b"
+    },
+    "quality_tolerance": 0.4,
+    "rationale": "simple: qwen2.5:3b (\u0394judge -0.50 \u2264 0.4); complex: qwen2.5:3b (\u0394judge +0.00 \u2264 0.4)",
+    "source": "evals.run_evals",
+    "generated_at": "2026-06-24 06:15:15"
+  },
+  "per_model": {
+    "llama3.2:1b": {
+      "overall": {
+        "n": 6,
+        "judge_mean": 2.5,
+        "judge_p50": 2,
+        "judge_p95": 3,
+        "coverage_mean": 0.778,
+        "coverage_p50": 1.0,
+        "coverage_p95": 1.0,
+        "latency_s_mean": 58.115,
+        "latency_s_p50": 48.86,
+        "latency_s_p95": 84.72
+      },
+      "simple": {
+        "n": 6,
+        "judge_mean": 2.5,
+        "judge_p50": 2,
+        "judge_p95": 3,
+        "coverage_mean": 0.778,
+        "coverage_p50": 1.0,
+        "coverage_p95": 1.0,
+        "latency_s_mean": 58.115,
+        "latency_s_p50": 48.86,
+        "latency_s_p95": 84.72
+      },
+      "complex": {
+        "n": 0
+      }
+    },
+    "qwen2.5:3b": {
+      "overall": {
+        "n": 6,
+        "judge_mean": 3,
+        "judge_p50": 3,
+        "judge_p95": 4,
+        "coverage_mean": 0.778,
+        "coverage_p50": 1.0,
+        "coverage_p95": 1.0,
+        "latency_s_mean": 50.055,
+        "latency_s_p50": 48.98,
+        "latency_s_p95": 61.24
+      },
+      "simple": {
+        "n": 6,
+        "judge_mean": 3,
+        "judge_p50": 3,
+        "judge_p95": 4,
+        "coverage_mean": 0.778,
+        "coverage_p50": 1.0,
+        "coverage_p95": 1.0,
+        "latency_s_mean": 50.055,
+        "latency_s_p50": 48.98,
+        "latency_s_p95": 61.24
+      },
+      "complex": {
+        "n": 0
+      }
+    }
+  },
+  "rows": [
+    {
+      "id": "cpr-def",
+      "category": "definition",
+      "complexity": "simple",
+      "model": "llama3.2:1b",
+      "latency_s": 63.67,
+      "coverage": 0.0,
+      "judge": 2,
+      "answer_chars": 1477,
+      "error": null
+    },
+    {
+      "id": "smm-def",
+      "category": "definition",
+      "complexity": "simple",
+      "model": "llama3.2:1b",
+      "latency_s": 84.72,
+      "coverage": 1.0,
+      "judge": 3,
+      "answer_chars": 1579,
+      "error": null
+    },
+    {
+      "id": "psa-def",
+      "category": "definition",
+      "complexity": "simple",
+      "model": "llama3.2:1b",
+      "latency_s": 41.07,
+      "coverage": 0.667,
+      "judge": 3,
+      "answer_chars": 1355,
+      "error": null
+    },
+    {
+      "id": "mbs-def",
+      "category": "definition",
+      "complexity": "simple",
+      "model": "llama3.2:1b",
+      "latency_s": 42.56,
+      "coverage": 1.0,
+      "judge": 3,
+      "answer_chars": 1341,
+      "error": null
+    },
+    {
+      "id": "duration-def",
+      "category": "definition",
+      "complexity": "simple",
+      "model": "llama3.2:1b",
+      "latency_s": 67.81,
+      "coverage": 1.0,
+      "judge": 2,
+      "answer_chars": 1742,
+      "error": null
+    },
+    {
+      "id": "ytm-def",
+      "category": "definition",
+      "complexity": "simple",
+      "model": "llama3.2:1b",
+      "latency_s": 48.86,
+      "coverage": 1.0,
+      "judge": 2,
+      "answer_chars": 1267,
+      "error": null
+    },
+    {
+      "id": "cpr-def",
+      "category": "definition",
+      "complexity": "simple",
+      "model": "qwen2.5:3b",
+      "latency_s": 48.98,
+      "coverage": 0.0,
+      "judge": 2,
+      "answer_chars": 918,
+      "error": null
+    },
+    {
+      "id": "smm-def",
+      "category": "definition",
+      "complexity": "simple",
+      "model": "qwen2.5:3b",
+      "latency_s": 61.24,
+      "coverage": 1.0,
+      "judge": 2,
+      "answer_chars": 1317,
+      "error": null
+    },
+    {
+      "id": "psa-def",
+      "category": "definition",
+      "complexity": "simple",
+      "model": "qwen2.5:3b",
+      "latency_s": 59.77,
+      "coverage": 0.667,
+      "judge": 3,
+      "answer_chars": 1077,
+      "error": null
+    },
+    {
+      "id": "mbs-def",
+      "category": "definition",
+      "complexity": "simple",
+      "model": "qwen2.5:3b",
+      "latency_s": 48.24,
+      "coverage": 1.0,
+      "judge": 4,
+      "answer_chars": 1034,
+      "error": null
+    },
+    {
+      "id": "duration-def",
+      "category": "definition",
+      "complexity": "simple",
+      "model": "qwen2.5:3b",
+      "latency_s": 28.96,
+      "coverage": 1.0,
+      "judge": 4,
+      "answer_chars": 548,
+      "error": null
+    },
+    {
+      "id": "ytm-def",
+      "category": "definition",
+      "complexity": "simple",
+      "model": "qwen2.5:3b",
+      "latency_s": 53.14,
+      "coverage": 1.0,
+      "judge": 3,
+      "answer_chars": 829,
+      "error": null
+    }
+  ]
+}
